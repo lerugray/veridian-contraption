@@ -99,7 +99,7 @@ prose, and runs continuously whether the player interacts or not.
 **Update this section at the end of every session.**
 
 ```
-CURRENT PHASE: Phase 1-F
+CURRENT PHASE: Phase 1 COMPLETE
 LAST COMPLETED PROMPT: 1-F — Main Menu & Save/Load System
 STATUS: Working
 NEXT TASK: Phase 2 — Institutions & Language
