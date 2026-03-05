@@ -6,10 +6,11 @@ use ratatui::{
     Frame,
 };
 
-use crate::sim::world::World;
+use crate::sim::SimState;
+use crate::sim::world::{MAP_HEIGHT, MAP_WIDTH};
 
 /// Draw the main two-panel layout: world map (left) and live log (right).
-pub fn draw_main_layout(frame: &mut Frame, world: &World) {
+pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -26,21 +27,32 @@ pub fn draw_main_layout(frame: &mut Frame, world: &World) {
         ])
         .split(chunks[0]);
 
-    draw_map_panel(frame, panels[0], world);
-    draw_log_panel(frame, panels[1]);
-    draw_status_bar(frame, chunks[1], world);
+    draw_map_panel(frame, panels[0], sim);
+    draw_log_panel(frame, panels[1], sim);
+    draw_status_bar(frame, chunks[1], sim);
 }
 
-fn draw_map_panel(frame: &mut Frame, area: Rect, world: &World) {
+fn draw_map_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
     let block = Block::default()
-        .title(format!(" {} ", world.name))
+        .title(format!(" {} ", sim.world.name))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray));
 
-    let rendered = world.render_map();
+    let mut rendered = sim.world.render_map();
+
+    // Overlay living agents on the map
+    for agent in &sim.agents {
+        if !agent.alive {
+            continue;
+        }
+        let ax = agent.x as usize;
+        let ay = agent.y as usize;
+        if ay < MAP_HEIGHT && ax < MAP_WIDTH {
+            rendered[ay][ax] = ('@', Color::Magenta);
+        }
+    }
 
     // Convert rendered map to ratatui Lines.
-    // Each row becomes a Line of individually-colored Spans.
     let lines: Vec<Line> = rendered
         .iter()
         .map(|row| {
@@ -58,23 +70,29 @@ fn draw_map_panel(frame: &mut Frame, area: Rect, world: &World) {
     frame.render_widget(map_widget, area);
 }
 
-fn draw_log_panel(frame: &mut Frame, area: Rect) {
+fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
     let block = Block::default()
         .title(" LIVE LOG ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray));
 
-    let placeholder = Paragraph::new("No events yet.")
-        .style(Style::default().fg(Color::Gray))
-        .block(block);
+    // Show the most recent log entries that fit in the panel
+    let inner_height = area.height.saturating_sub(2) as usize; // subtract borders
+    let start = sim.log.len().saturating_sub(inner_height);
+    let visible: Vec<Line> = sim.log[start..]
+        .iter()
+        .map(|entry| Line::from(Span::styled(entry.as_str(), Style::default().fg(Color::Gray))))
+        .collect();
 
-    frame.render_widget(placeholder, area);
+    let log_widget = Paragraph::new(visible).block(block);
+    frame.render_widget(log_widget, area);
 }
 
-fn draw_status_bar(frame: &mut Frame, area: Rect, world: &World) {
+fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
+    let alive_count = sim.agents.iter().filter(|a| a.alive).count();
     let status_text = format!(
-        " {}  |  Tick {}  |  Paused  |  q = quit  |  ? = help",
-        world.name, world.tick,
+        " {}  |  Tick {}  |  {}  |  Pop: {}  |  SPACE=pause  .=step  1/5/2=speed  q=quit",
+        sim.world.name, sim.world.tick, sim.speed.label(), alive_count,
     );
     let status = Paragraph::new(status_text)
         .style(Style::default().fg(Color::White).bg(Color::DarkGray));

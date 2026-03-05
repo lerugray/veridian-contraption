@@ -1,10 +1,11 @@
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
+use crate::sim::agent::{Agent, Disposition, Goal};
 use crate::sim::world::*;
 
 /// Generate a complete world from a seed.
-pub fn generate_world(seed: u64) -> World {
+pub fn generate_world(seed: u64) -> (World, Vec<Agent>) {
     let mut rng = StdRng::seed_from_u64(seed);
 
     let name = generate_world_name(&mut rng);
@@ -13,15 +14,18 @@ pub fn generate_world(seed: u64) -> World {
     let terrain = classify_terrain(&heightmap, &moisture);
     let settlements = place_settlements(&terrain, &mut rng);
     let peoples = generate_peoples(&mut rng);
+    let agents = generate_agents(&settlements, &peoples, &mut rng);
 
-    World {
+    let world = World {
         seed,
         name,
         terrain,
         settlements,
         peoples,
         tick: 0,
-    }
+    };
+
+    (world, agents)
 }
 
 /// Placeholder world name generator — will be replaced by phoneme-based gen later.
@@ -202,6 +206,69 @@ fn place_settlements(terrain: &[Vec<Terrain>], rng: &mut StdRng) -> Vec<Settleme
     }
 
     settlements
+}
+
+// ---------------------------------------------------------------------------
+// Peoples generation
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Agent generation
+// ---------------------------------------------------------------------------
+
+/// Generate 40-80 agents distributed across settlements.
+fn generate_agents(
+    settlements: &[Settlement],
+    peoples: &[People],
+    rng: &mut StdRng,
+) -> Vec<Agent> {
+    let count = rng.gen_range(40..=80);
+    let mut agents = Vec::with_capacity(count);
+
+    // Agent name parts — placeholder until phoneme-based gen in Phase 2
+    let first_parts = [
+        "Whelm", "Orrith", "Gask", "Pelm", "Thren", "Duvv", "Quor", "Anx",
+        "Brevv", "Ilt", "Noch", "Vrem", "Solk", "Jurr", "Ersk", "Tobb",
+        "Krev", "Mund", "Plix", "Zarr", "Felk", "Grint", "Hoss", "Lebb",
+    ];
+    let last_parts = [
+        "Durr-Anquist", "the Appointed", "of the Reach", "Velmson",
+        "Greywick", "Pallmark", "the Noted", "Inkster",
+        "Thornwise", "Quillbent", "the Enumerated", "of Pelm",
+        "Drossward", "the Provisional", "Axleworth", "Stumpkin",
+    ];
+
+    for i in 0..count {
+        let first = first_parts[rng.gen_range(0..first_parts.len())];
+        let last = last_parts[rng.gen_range(0..last_parts.len())];
+        let name = format!("{} {}", first, last);
+
+        // Assign to a random settlement
+        let settlement_idx = rng.gen_range(0..settlements.len());
+        let s = &settlements[settlement_idx];
+
+        // Assign to a random people
+        let people_id = rng.gen_range(0..peoples.len());
+
+        // Start with a random age (in ticks) — 0 to ~50 years
+        let age = rng.gen_range(0..18250);
+
+        agents.push(Agent {
+            id: i as u64,
+            name,
+            people_id,
+            x: s.x as u32,
+            y: s.y as u32,
+            health: rng.gen_range(60..=100),
+            age,
+            disposition: Disposition::random(rng),
+            current_goal: Goal::Wander,
+            chronicle: Vec::new(),
+            alive: true,
+        });
+    }
+
+    agents
 }
 
 // ---------------------------------------------------------------------------
