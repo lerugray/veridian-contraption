@@ -99,7 +99,6 @@ fn draw_map_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
             if count == 1 {
                 rendered[y][x] = ('@', color);
             } else if count < 10 {
-                // Show digit for 2-9 agents on one tile
                 let ch = char::from_digit(count, 10).unwrap_or('*');
                 rendered[y][x] = (ch, color);
             } else {
@@ -108,18 +107,40 @@ fn draw_map_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
         }
     }
 
-    let lines: Vec<Line> = rendered
-        .iter()
-        .map(|row| {
-            let spans: Vec<Span> = row
-                .iter()
-                .map(|&(ch, color)| {
-                    Span::styled(ch.to_string(), Style::default().fg(color))
-                })
-                .collect();
-            Line::from(spans)
-        })
-        .collect();
+    // Scale the map to fill the panel by distributing extra rows/columns
+    // evenly across map tiles (some tiles get one extra char/row).
+    let inner_w = area.width.saturating_sub(2) as usize;
+    let inner_h = area.height.saturating_sub(2) as usize;
+
+    // Per-column widths: base width + 1 extra char for the first `remainder` columns
+    let col_base = inner_w / MAP_WIDTH;
+    let col_extra = inner_w % MAP_WIDTH;
+
+    // Per-row heights: base height + 1 extra row for the first `remainder` rows
+    let row_base = inner_h / MAP_HEIGHT;
+    let row_extra = inner_h % MAP_HEIGHT;
+
+    let mut lines: Vec<Line> = Vec::new();
+    for y in 0..MAP_HEIGHT {
+        let row_repeats = if y < row_extra { row_base + 1 } else { row_base };
+        if row_repeats == 0 {
+            continue;
+        }
+
+        let spans: Vec<Span> = rendered[y]
+            .iter()
+            .enumerate()
+            .map(|(x, &(ch, color))| {
+                let w = if x < col_extra { col_base + 1 } else { col_base };
+                let s: String = std::iter::repeat(ch).take(w.max(1)).collect();
+                Span::styled(s, Style::default().fg(color))
+            })
+            .collect();
+        let line = Line::from(spans);
+        for _ in 0..row_repeats {
+            lines.push(line.clone());
+        }
+    }
 
     let map_widget = Paragraph::new(lines).block(block);
     frame.render_widget(map_widget, area);
@@ -244,7 +265,7 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
         .as_deref()
         .unwrap_or("unsaved");
     let status_text = format!(
-        " {}  |  Tick {}  |  {}  |  Pop: {}  |  [{}]  |  SPACE=pause  .=step  i=inspect  e=export  Ctrl+S=save  q=quit",
+        " {}  |  Tick {}  |  {}  |  Pop: {}  |  [{}]  |  SPACE=pause .=step 1/5/2=speed i=inspect e=export ^S=save q=quit",
         sim.world.name, sim.world.tick, sim.speed.label(), alive_count, save_label,
     );
     let status = Paragraph::new(status_text)
