@@ -92,6 +92,12 @@ fn run_app(
                         KeyCode::Char('2') => {
                             sim.speed = SimSpeed::Run20x;
                         }
+                        KeyCode::PageUp => {
+                            sim.scroll_log_up(5);
+                        }
+                        KeyCode::PageDown => {
+                            sim.scroll_log_down(5);
+                        }
                         _ => {}
                     }
                 }

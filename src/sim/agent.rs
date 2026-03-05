@@ -2,6 +2,7 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
+use crate::sim::event::EventType;
 use crate::sim::world::{MAP_HEIGHT, MAP_WIDTH, Terrain};
 
 /// Behavioral weights that shape how an agent acts.
@@ -36,6 +37,14 @@ pub enum Goal {
     Rest(u32),
 }
 
+/// An action result returned from Agent::act() to be turned into events by the sim.
+pub struct AgentAction {
+    pub agent_id: u64,
+    pub event_type: EventType,
+    pub old_pos: (u32, u32),
+    pub new_pos: (u32, u32),
+}
+
 /// A single agent in the simulation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Agent {
@@ -54,27 +63,42 @@ pub struct Agent {
 }
 
 impl Agent {
-    /// Take one action for this tick, mutating position and goal as needed.
+    /// Take one action for this tick. Returns any notable events that occurred.
     pub fn act(
         &mut self,
         rng: &mut StdRng,
         terrain: &[Vec<Terrain>],
         settlements: &[(u32, u32)],
-    ) {
+    ) -> Vec<AgentAction> {
         if !self.alive {
-            return;
+            return Vec::new();
         }
+
+        let mut actions = Vec::new();
+        let old_pos = (self.x, self.y);
 
         self.age += 1;
 
         // Die of old age at 36500 ticks (~100 years).
         if self.age > 36500 {
             self.alive = false;
-            self.chronicle.push(format!(
-                "Tick {}: Passed from this world at a venerable age.",
-                self.age
-            ));
-            return;
+            actions.push(AgentAction {
+                agent_id: self.id,
+                event_type: EventType::AgentDied,
+                old_pos,
+                new_pos: old_pos,
+            });
+            return actions;
+        }
+
+        // Age milestone events (every ~10 years = 3650 ticks)
+        if self.age > 0 && self.age % 3650 == 0 {
+            actions.push(AgentAction {
+                agent_id: self.id,
+                event_type: EventType::AgeEvent,
+                old_pos,
+                new_pos: old_pos,
+            });
         }
 
         match &self.current_goal {
@@ -87,24 +111,41 @@ impl Agent {
                 if idx < settlements.len() {
                     let (sx, sy) = settlements[idx];
                     self.move_toward(sx, sy, terrain);
-                    // Arrived?
-                    if self.x == sx && self.y == sy {
+                    // Arrived at settlement?
+                    if self.x == sx && self.y == sy && (old_pos.0 != sx || old_pos.1 != sy) {
+                        actions.push(AgentAction {
+                            agent_id: self.id,
+                            event_type: EventType::AgentArrived,
+                            old_pos,
+                            new_pos: (self.x, self.y),
+                        });
                         self.current_goal = Goal::Rest(rng.gen_range(10..=50));
                     }
                 } else {
-                    // Invalid target, wander instead
                     self.current_goal = Goal::Wander;
                 }
             }
             Goal::Rest(remaining) => {
                 let remaining = *remaining;
                 if remaining <= 1 {
+                    // About to leave — generate a departure event if at a settlement
+                    let at_settlement = settlements.iter().any(|&(sx, sy)| self.x == sx && self.y == sy);
+                    if at_settlement {
+                        actions.push(AgentAction {
+                            agent_id: self.id,
+                            event_type: EventType::AgentDeparted,
+                            old_pos,
+                            new_pos: old_pos,
+                        });
+                    }
                     self.maybe_change_goal(rng, settlements);
                 } else {
                     self.current_goal = Goal::Rest(remaining - 1);
                 }
             }
         }
+
+        actions
     }
 
     /// Move one tile in a random walkable direction.
@@ -131,7 +172,6 @@ impl Agent {
         }
 
         let t = terrain[ny as usize][nx as usize];
-        // Agents can walk on anything except deep water
         if t != Terrain::DeepWater {
             self.x = nx as u32;
             self.y = ny as u32;
@@ -142,8 +182,6 @@ impl Agent {
     fn maybe_change_goal(&mut self, rng: &mut StdRng, settlements: &[(u32, u32)]) {
         let roll: f32 = rng.gen();
 
-        // Higher ambition = more likely to seek a settlement
-        // Higher risk_tolerance = less likely to rest
         if roll < self.disposition.ambition * 0.3 && !settlements.is_empty() {
             let idx = rng.gen_range(0..settlements.len());
             self.current_goal = Goal::SeekSettlement(idx);

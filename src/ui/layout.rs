@@ -22,8 +22,8 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
     let panels = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(60), // world map gets more space
-            Constraint::Percentage(40), // log pane
+            Constraint::Percentage(60),
+            Constraint::Percentage(40),
         ])
         .split(chunks[0]);
 
@@ -52,7 +52,6 @@ fn draw_map_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
         }
     }
 
-    // Convert rendered map to ratatui Lines.
     let lines: Vec<Line> = rendered
         .iter()
         .map(|row| {
@@ -71,18 +70,111 @@ fn draw_map_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
 }
 
 fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
-    let block = Block::default()
-        .title(" LIVE LOG ")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray));
+    let scrolled = sim.log_scroll > 0;
+    let title = if scrolled {
+        format!(" LIVE LOG [scrolled +{}] ", sim.log_scroll)
+    } else {
+        " LIVE LOG ".to_string()
+    };
 
-    // Show the most recent log entries that fit in the panel
-    let inner_height = area.height.saturating_sub(2) as usize; // subtract borders
-    let start = sim.log.len().saturating_sub(inner_height);
-    let visible: Vec<Line> = sim.log[start..]
-        .iter()
-        .map(|entry| Line::from(Span::styled(entry.as_str(), Style::default().fg(Color::Gray))))
-        .collect();
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(if scrolled {
+            Color::Yellow
+        } else {
+            Color::DarkGray
+        }));
+
+    let inner_height = area.height.saturating_sub(2) as usize;
+    let inner_width = area.width.saturating_sub(2) as usize;
+
+    if inner_height == 0 || inner_width == 0 || sim.events.is_empty() {
+        let empty = Paragraph::new("No events yet.")
+            .style(Style::default().fg(Color::Gray))
+            .block(block);
+        frame.render_widget(empty, area);
+        return;
+    }
+
+    // Build all formatted lines (events may wrap to multiple display lines).
+    let mut all_lines: Vec<Line> = Vec::new();
+
+    for event in &sim.events {
+        // Format: [tick] description
+        // The tick prefix is dim, the description is normal gray.
+        let tick_str = format!("[{}] ", event.tick);
+        let desc = &event.description;
+
+        // Word-wrap the description manually so we can color the tick prefix
+        // separately from the body text.
+        let prefix_len = tick_str.len();
+        let body_width = inner_width.saturating_sub(prefix_len);
+
+        if body_width < 10 {
+            // Panel too narrow for wrapping; just truncate
+            all_lines.push(Line::from(vec![
+                Span::styled(tick_str.clone(), Style::default().fg(Color::DarkGray)),
+                Span::styled(desc.clone(), Style::default().fg(Color::Gray)),
+            ]));
+        } else {
+            // First line gets the tick prefix
+            let words: Vec<&str> = desc.split_whitespace().collect();
+            let mut line_buf = String::new();
+            let mut first = true;
+
+            for word in &words {
+                let space = if line_buf.is_empty() { 0 } else { 1 };
+                let limit = if first { body_width } else { inner_width };
+
+                if line_buf.len() + space + word.len() > limit && !line_buf.is_empty() {
+                    // Emit this line
+                    if first {
+                        all_lines.push(Line::from(vec![
+                            Span::styled(tick_str.clone(), Style::default().fg(Color::DarkGray)),
+                            Span::styled(line_buf.clone(), Style::default().fg(Color::Gray)),
+                        ]));
+                        first = false;
+                    } else {
+                        // Continuation lines indented with spaces matching tick prefix
+                        let indent = " ".repeat(prefix_len);
+                        all_lines.push(Line::from(vec![
+                            Span::styled(indent, Style::default().fg(Color::DarkGray)),
+                            Span::styled(line_buf.clone(), Style::default().fg(Color::Gray)),
+                        ]));
+                    }
+                    line_buf.clear();
+                }
+
+                if !line_buf.is_empty() {
+                    line_buf.push(' ');
+                }
+                line_buf.push_str(word);
+            }
+
+            // Emit remaining text
+            if !line_buf.is_empty() {
+                if first {
+                    all_lines.push(Line::from(vec![
+                        Span::styled(tick_str.clone(), Style::default().fg(Color::DarkGray)),
+                        Span::styled(line_buf, Style::default().fg(Color::Gray)),
+                    ]));
+                } else {
+                    let indent = " ".repeat(prefix_len);
+                    all_lines.push(Line::from(vec![
+                        Span::styled(indent, Style::default().fg(Color::DarkGray)),
+                        Span::styled(line_buf, Style::default().fg(Color::Gray)),
+                    ]));
+                }
+            }
+        }
+    }
+
+    // Apply scroll offset: log_scroll=0 means show the most recent lines.
+    let total = all_lines.len();
+    let end = total.saturating_sub(sim.log_scroll);
+    let start = end.saturating_sub(inner_height);
+    let visible: Vec<Line> = all_lines[start..end].to_vec();
 
     let log_widget = Paragraph::new(visible).block(block);
     frame.render_widget(log_widget, area);
