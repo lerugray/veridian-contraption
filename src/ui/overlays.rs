@@ -229,6 +229,32 @@ pub fn draw_export_input(frame: &mut Frame, input: &str) {
     frame.render_widget(widget, area);
 }
 
+/// Draw the save name input overlay (Ctrl+S).
+pub fn draw_save_name_input(frame: &mut Frame, input: &str) {
+    let area = centered_rect(50, 20, frame.area());
+    frame.render_widget(Clear, area);
+
+    let lines = vec![
+        Line::from(Span::styled(" Enter save name:", Style::default().fg(Color::White))),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(" > ", Style::default().fg(Color::Yellow)),
+            Span::styled(input, Style::default().fg(Color::White)),
+            Span::styled("_", Style::default().fg(Color::DarkGray)),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(" ENTER to save  |  ESC to cancel", Style::default().fg(Color::DarkGray))),
+    ];
+
+    let block = Block::default()
+        .title(" SAVE WORLD ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+
+    let widget = Paragraph::new(lines).block(block);
+    frame.render_widget(widget, area);
+}
+
 /// Simple text bar visualization for a 0.0-1.0 value.
 fn disposition_bar(value: f32) -> String {
     let filled = (value * 10.0).round() as usize;

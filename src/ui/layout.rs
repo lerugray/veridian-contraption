@@ -58,6 +58,9 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
         Overlay::ExportInput(input) => {
             overlays::draw_export_input(frame, input);
         }
+        Overlay::SaveNameInput(input) => {
+            overlays::draw_save_name_input(frame, input);
+        }
     }
 }
 
@@ -150,10 +153,14 @@ fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
         return;
     }
 
-    // Build all formatted lines (events may wrap to multiple display lines).
+    // Slice events: log_scroll is the number of events to skip from the end.
+    let end_event = sim.events.len().saturating_sub(sim.log_scroll);
+    let visible_events = &sim.events[..end_event];
+
+    // Build formatted lines from the visible events (events may wrap to multiple display lines).
     let mut all_lines: Vec<Line> = Vec::new();
 
-    for event in &sim.events {
+    for event in visible_events {
         let tick_str = format!("[{}] ", event.tick);
         let desc = &event.description;
         let prefix_len = tick_str.len();
@@ -213,10 +220,10 @@ fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
         }
     }
 
+    // Show the last inner_height lines of the visible events
     let total = all_lines.len();
-    let end = total.saturating_sub(sim.log_scroll);
-    let start = end.saturating_sub(inner_height);
-    let visible: Vec<Line> = all_lines[start..end].to_vec();
+    let start = total.saturating_sub(inner_height);
+    let visible: Vec<Line> = all_lines[start..].to_vec();
 
     let log_widget = Paragraph::new(visible).block(block);
     frame.render_widget(log_widget, area);
@@ -232,9 +239,13 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
     }
 
     let alive_count = sim.agents.iter().filter(|a| a.alive).count();
+    let save_label = sim
+        .save_name
+        .as_deref()
+        .unwrap_or("unsaved");
     let status_text = format!(
-        " {}  |  Tick {}  |  {}  |  Pop: {}  |  SPACE=pause  .=step  1/5/2=speed  i=inspect  e=export  q=quit",
-        sim.world.name, sim.world.tick, sim.speed.label(), alive_count,
+        " {}  |  Tick {}  |  {}  |  Pop: {}  |  [{}]  |  SPACE=pause  .=step  i=inspect  e=export  Ctrl+S=save  q=quit",
+        sim.world.name, sim.world.tick, sim.speed.label(), alive_count, save_label,
     );
     let status = Paragraph::new(status_text)
         .style(Style::default().fg(Color::White).bg(Color::DarkGray));

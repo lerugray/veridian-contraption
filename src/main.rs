@@ -6,17 +6,21 @@ mod export;
 use std::io;
 use std::time::{Duration, Instant};
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     execute,
 };
 use ratatui::prelude::CrosstermBackend;
 use ratatui::Terminal;
 
+use crate::export::SaveFileInfo;
 use crate::gen::world_gen;
 use crate::sim::{Overlay, SimSpeed, SimState};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Ensure saves directory exists at startup
+    let _ = export::ensure_saves_dir();
+
     // Set up terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -24,55 +28,120 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Generate a world with a default seed (will be player-configurable later)
-    let seed = 42;
-    let (world, agents) = world_gen::generate_world(seed);
-    let sim = SimState::new(world, agents);
-
     // Run the app loop; catch errors so we always clean up the terminal
-    let result = run_app(&mut terminal, sim);
+    let result = run_app(&mut terminal);
 
     // Restore terminal no matter what
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
-    // Now propagate any error from the app loop
     result
 }
 
 /// Target frame duration (~30 FPS).
 const FRAME_DURATION: Duration = Duration::from_millis(33);
 
+/// The top-level application mode (menu vs. in-game).
+enum AppMode {
+    MainMenu {
+        selected: usize,
+        has_autosave: bool,
+    },
+    NewWorld {
+        selected_preset: usize,
+        seed_input: String,
+        editing_seed: bool,
+    },
+    LoadWorld {
+        saves: Vec<SaveFileInfo>,
+        selected: usize,
+    },
+    /// Brief "Generating..." screen shown for a few frames before sim starts.
+    Generating {
+        seed: u64,
+        frames_shown: u32,
+    },
+    InGame,
+}
+
 fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    mut sim: SimState,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut frame_count: u64 = 0;
+    let mut mode = AppMode::MainMenu {
+        selected: 0,
+        has_autosave: export::has_autosave(),
+    };
+    // sim lives here, populated when entering InGame mode
+    let mut sim: Option<SimState> = None;
 
     loop {
         let frame_start = Instant::now();
         frame_count += 1;
 
-        // Draw the current state
+        // Draw based on current mode
         terminal.draw(|frame| {
-            ui::layout::draw_main_layout(frame, &sim);
+            match &mode {
+                AppMode::MainMenu { selected, has_autosave } => {
+                    ui::menu::draw_main_menu(frame, *selected, *has_autosave);
+                }
+                AppMode::NewWorld { selected_preset, seed_input, editing_seed } => {
+                    ui::menu::draw_new_world(frame, *selected_preset, seed_input, *editing_seed);
+                }
+                AppMode::LoadWorld { saves, selected } => {
+                    ui::menu::draw_load_world(frame, saves, *selected);
+                }
+                AppMode::Generating { .. } => {
+                    ui::menu::draw_generating(frame);
+                }
+                AppMode::InGame => {
+                    if let Some(ref s) = sim {
+                        ui::layout::draw_main_layout(frame, s);
+                    }
+                }
+            }
         })?;
 
-        // Run simulation ticks (only when no overlay is active)
-        if sim.overlay == Overlay::None {
-            sim.step_frame(frame_count);
+        // Handle Generating state transition (show the screen for a few frames first)
+        if let AppMode::Generating { seed, ref mut frames_shown } = mode {
+            *frames_shown += 1;
+            if *frames_shown >= 3 {
+                let (world, agents) = world_gen::generate_world(seed);
+                sim = Some(SimState::new(world, agents));
+                mode = AppMode::InGame;
+                continue;
+            }
         }
 
-        // Process input — poll with remaining frame time budget
+        // Run simulation ticks when in-game and no overlay is active
+        if let AppMode::InGame = &mode {
+            if let Some(ref mut s) = sim {
+                if s.overlay == Overlay::None {
+                    s.step_frame(frame_count);
+                }
+
+                // Autosave every 500 ticks
+                if s.world.tick > 0 && s.world.tick - s.last_autosave_tick >= 500 {
+                    s.last_autosave_tick = s.world.tick;
+                    match export::save_world(s, "autosave") {
+                        Ok(_) => s.set_status_message("~ autosaved".to_string()),
+                        Err(e) => s.set_status_message(format!("Autosave failed: {}", e)),
+                    }
+                }
+            }
+        }
+
+        // Process input
         let elapsed = frame_start.elapsed();
         let poll_time = FRAME_DURATION.saturating_sub(elapsed);
 
         if event::poll(poll_time)? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    if handle_input(&mut sim, key.code) {
-                        return Ok(());
+                    match handle_input(&mut mode, &mut sim, key.code, key.modifiers) {
+                        InputResult::Continue => {}
+                        InputResult::Quit => return Ok(()),
                     }
                 }
             }
@@ -80,23 +149,279 @@ fn run_app(
     }
 }
 
-/// Route input based on the current overlay state.
-/// Returns true if the app should quit.
-fn handle_input(sim: &mut SimState, key: KeyCode) -> bool {
-    match &sim.overlay {
-        Overlay::None => handle_main_input(sim, key),
-        Overlay::InspectAgent(_) => { handle_inspect_input(sim, key); false }
-        Overlay::AgentSearch(_) => { handle_search_input(sim, key); false }
-        Overlay::ExportMenu => { handle_export_menu_input(sim, key); false }
-        Overlay::ExportInput(_) => { handle_export_input(sim, key); false }
+enum InputResult {
+    Continue,
+    Quit,
+}
+
+/// Route input based on the current app mode.
+fn handle_input(
+    mode: &mut AppMode,
+    sim: &mut Option<SimState>,
+    key: KeyCode,
+    modifiers: KeyModifiers,
+) -> InputResult {
+    match mode {
+        AppMode::MainMenu { .. } => {
+            handle_menu_input(mode, sim, key)
+        }
+        AppMode::NewWorld { .. } => {
+            handle_new_world_input(mode, key);
+            InputResult::Continue
+        }
+        AppMode::LoadWorld { .. } => {
+            handle_load_world_input(mode, sim, key);
+            InputResult::Continue
+        }
+        AppMode::Generating { .. } => InputResult::Continue,
+        AppMode::InGame => {
+            if let Some(ref mut s) = sim {
+                handle_game_input(s, key, modifiers)
+            } else {
+                InputResult::Continue
+            }
+        }
     }
 }
 
-/// Input handling for the main simulation view. Returns true if should quit.
-fn handle_main_input(sim: &mut SimState, key: KeyCode) -> bool {
+// ---------------------------------------------------------------------------
+// Main Menu Input
+// ---------------------------------------------------------------------------
+
+fn handle_menu_input(
+    mode: &mut AppMode,
+    sim: &mut Option<SimState>,
+    key: KeyCode,
+) -> InputResult {
+    let (selected, has_autosave) = if let AppMode::MainMenu { selected, has_autosave } = mode {
+        (selected, *has_autosave)
+    } else {
+        return InputResult::Continue;
+    };
+
+    match key {
+        KeyCode::Up => {
+            if *selected > 0 {
+                *selected -= 1;
+            }
+        }
+        KeyCode::Down => {
+            if *selected < 3 {
+                *selected += 1;
+            }
+        }
+        KeyCode::Enter => {
+            match *selected {
+                0 => {
+                    // New World
+                    *mode = AppMode::NewWorld {
+                        selected_preset: 4, // Default to Unguided
+                        seed_input: String::new(),
+                        editing_seed: false,
+                    };
+                }
+                1 => {
+                    // Continue (load autosave)
+                    if has_autosave {
+                        let path = "saves/autosave.json";
+                        match export::load_world(path) {
+                            Ok(mut loaded) => {
+                                loaded.set_status_message("Resumed from autosave.".to_string());
+                                *sim = Some(loaded);
+                                *mode = AppMode::InGame;
+                            }
+                            Err(_) => {
+                                // Can't load — stay on menu
+                            }
+                        }
+                    }
+                }
+                2 => {
+                    // Load World
+                    let saves = export::list_saves();
+                    *mode = AppMode::LoadWorld {
+                        saves,
+                        selected: 0,
+                    };
+                }
+                3 => {
+                    // Quit
+                    return InputResult::Quit;
+                }
+                _ => {}
+            }
+        }
+        KeyCode::Char('q') => return InputResult::Quit,
+        _ => {}
+    }
+    InputResult::Continue
+}
+
+// ---------------------------------------------------------------------------
+// New World Input
+// ---------------------------------------------------------------------------
+
+fn handle_new_world_input(mode: &mut AppMode, key: KeyCode) {
+    let (selected_preset, seed_input, editing_seed) =
+        if let AppMode::NewWorld { selected_preset, seed_input, editing_seed } = mode {
+            (selected_preset, seed_input, editing_seed)
+        } else {
+            return;
+        };
+
+    if *editing_seed {
+        match key {
+            KeyCode::Esc => {
+                *editing_seed = false;
+            }
+            KeyCode::Enter => {
+                // Generate world with chosen preset and seed
+                let seed = if seed_input.is_empty() {
+                    // Random seed from system time
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(42)
+                } else {
+                    // Hash the seed string to a u64
+                    hash_seed_string(seed_input)
+                };
+                *mode = AppMode::Generating { seed, frames_shown: 0 };
+            }
+            KeyCode::Backspace => {
+                seed_input.pop();
+            }
+            KeyCode::Char(c) => {
+                if seed_input.len() < 40 {
+                    seed_input.push(c);
+                }
+            }
+            _ => {}
+        }
+    } else {
+        match key {
+            KeyCode::Esc => {
+                *mode = AppMode::MainMenu {
+                    selected: 0,
+                    has_autosave: export::has_autosave(),
+                };
+            }
+            KeyCode::Up => {
+                if *selected_preset > 0 {
+                    *selected_preset -= 1;
+                }
+            }
+            KeyCode::Down => {
+                if *selected_preset < ui::menu::FLAVOR_PRESETS.len() - 1 {
+                    *selected_preset += 1;
+                }
+            }
+            KeyCode::Tab => {
+                *editing_seed = true;
+            }
+            KeyCode::Enter => {
+                // Generate with selected preset and current seed input
+                let seed = if seed_input.is_empty() {
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(42)
+                } else {
+                    hash_seed_string(seed_input)
+                };
+                *mode = AppMode::Generating { seed, frames_shown: 0 };
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Hash a seed string to a u64 using a simple FNV-1a-like hash.
+fn hash_seed_string(s: &str) -> u64 {
+    let mut hash: u64 = 14695981039346656037;
+    for byte in s.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(1099511628211);
+    }
+    hash
+}
+
+// ---------------------------------------------------------------------------
+// Load World Input
+// ---------------------------------------------------------------------------
+
+fn handle_load_world_input(mode: &mut AppMode, sim: &mut Option<SimState>, key: KeyCode) {
+    let (saves, selected) = if let AppMode::LoadWorld { saves, selected } = mode {
+        (saves, selected)
+    } else {
+        return;
+    };
+
+    match key {
+        KeyCode::Esc => {
+            *mode = AppMode::MainMenu {
+                selected: 2,
+                has_autosave: export::has_autosave(),
+            };
+        }
+        KeyCode::Up => {
+            if *selected > 0 {
+                *selected -= 1;
+            }
+        }
+        KeyCode::Down => {
+            if !saves.is_empty() && *selected < saves.len() - 1 {
+                *selected += 1;
+            }
+        }
+        KeyCode::Enter => {
+            if !saves.is_empty() {
+                let path = saves[*selected].path.clone();
+                match export::load_world(&path) {
+                    Ok(mut loaded) => {
+                        let name = saves[*selected].name.clone();
+                        loaded.set_status_message(format!("Loaded: {}", name));
+                        *sim = Some(loaded);
+                        *mode = AppMode::InGame;
+                    }
+                    Err(_) => {
+                        // Stay on load screen — could show error in future
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+// ---------------------------------------------------------------------------
+// In-Game Input
+// ---------------------------------------------------------------------------
+
+/// Handle input when the simulation is running. Returns Quit if app should exit.
+fn handle_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifiers) -> InputResult {
+    match &sim.overlay {
+        Overlay::None => handle_main_game_input(sim, key, modifiers),
+        Overlay::InspectAgent(_) => { handle_inspect_input(sim, key); InputResult::Continue }
+        Overlay::AgentSearch(_) => { handle_search_input(sim, key); InputResult::Continue }
+        Overlay::ExportMenu => { handle_export_menu_input(sim, key); InputResult::Continue }
+        Overlay::ExportInput(_) => { handle_export_input(sim, key); InputResult::Continue }
+        Overlay::SaveNameInput(_) => { handle_save_name_input(sim, key); InputResult::Continue }
+    }
+}
+
+/// Input handling for the main simulation view.
+fn handle_main_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifiers) -> InputResult {
+    // Check for Ctrl+S first
+    if modifiers.contains(KeyModifiers::CONTROL) && key == KeyCode::Char('s') {
+        let default_name = sim.save_name.clone().unwrap_or_default();
+        sim.overlay = Overlay::SaveNameInput(default_name);
+        return InputResult::Continue;
+    }
+
     match key {
         KeyCode::Char('q') => {
-            return true;
+            return InputResult::Quit;
         }
         KeyCode::Char(' ') => {
             sim.speed = if sim.speed == SimSpeed::Paused {
@@ -116,7 +441,6 @@ fn handle_main_input(sim: &mut SimState, key: KeyCode) -> bool {
         KeyCode::PageUp => sim.scroll_log_up(5),
         KeyCode::PageDown => sim.scroll_log_down(5),
         KeyCode::Char('i') => {
-            // Open agent search overlay
             sim.overlay = Overlay::AgentSearch(String::new());
         }
         KeyCode::Char('e') => {
@@ -124,7 +448,7 @@ fn handle_main_input(sim: &mut SimState, key: KeyCode) -> bool {
         }
         _ => {}
     }
-    false
+    InputResult::Continue
 }
 
 /// Input handling when inspecting an agent.
@@ -137,7 +461,6 @@ fn handle_inspect_input(sim: &mut SimState, key: KeyCode) {
 
 /// Input handling for the agent search overlay.
 fn handle_search_input(sim: &mut SimState, key: KeyCode) {
-    // We need to extract the current query to work with it
     let query = if let Overlay::AgentSearch(ref q) = sim.overlay {
         q.clone()
     } else {
@@ -149,7 +472,6 @@ fn handle_search_input(sim: &mut SimState, key: KeyCode) {
             sim.overlay = Overlay::None;
         }
         KeyCode::Enter => {
-            // Find first match and inspect it
             if query.len() >= 2 {
                 let matches = sim.search_agents(&query);
                 if let Some(&idx) = matches.first() {
@@ -218,6 +540,49 @@ fn handle_export_input(sim: &mut SimState, key: KeyCode) {
             let mut s = input;
             s.push(c);
             sim.overlay = Overlay::ExportInput(s);
+        }
+        _ => {}
+    }
+}
+
+/// Input handling for the save name input overlay (Ctrl+S).
+fn handle_save_name_input(sim: &mut SimState, key: KeyCode) {
+    let input = if let Overlay::SaveNameInput(ref s) = sim.overlay {
+        s.clone()
+    } else {
+        return;
+    };
+
+    match key {
+        KeyCode::Esc => {
+            sim.overlay = Overlay::None;
+        }
+        KeyCode::Enter => {
+            let name = if input.is_empty() {
+                sim.world.name.clone()
+            } else {
+                input
+            };
+            match export::save_world(sim, &name) {
+                Ok(path) => {
+                    sim.save_name = Some(name);
+                    sim.set_status_message(format!("Saved to {}", path));
+                }
+                Err(e) => {
+                    sim.set_status_message(format!("Save failed: {}", e));
+                }
+            }
+            sim.overlay = Overlay::None;
+        }
+        KeyCode::Backspace => {
+            let mut s = input;
+            s.pop();
+            sim.overlay = Overlay::SaveNameInput(s);
+        }
+        KeyCode::Char(c) => {
+            let mut s = input;
+            s.push(c);
+            sim.overlay = Overlay::SaveNameInput(s);
         }
         _ => {}
     }

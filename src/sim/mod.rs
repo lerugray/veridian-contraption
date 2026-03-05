@@ -55,6 +55,20 @@ pub enum Overlay {
     ExportMenu,
     /// Export: player is typing a filename prefix.
     ExportInput(String),
+    /// Save: player is typing a save name (Ctrl+S).
+    SaveNameInput(String),
+}
+
+/// Serializable snapshot of the simulation state for save/load.
+#[derive(Serialize, Deserialize)]
+pub struct SaveData {
+    pub world: World,
+    pub agents: Vec<Agent>,
+    pub speed: SimSpeed,
+    pub events: Vec<Event>,
+    pub save_name: Option<String>,
+    /// Seed used to reconstruct the RNG on load.
+    pub rng_state_seed: u64,
 }
 
 /// The complete simulation state.
@@ -72,6 +86,10 @@ pub struct SimState {
     pub status_message: Option<(String, u32)>,
     /// The RNG used for all simulation randomness.
     rng: StdRng,
+    /// Name of the current save file (None = unsaved new world).
+    pub save_name: Option<String>,
+    /// Tick at which last autosave fired (to avoid double-saving).
+    pub last_autosave_tick: u64,
 }
 
 impl SimState {
@@ -93,6 +111,38 @@ impl SimState {
             overlay: Overlay::None,
             status_message: None,
             rng,
+            save_name: None,
+            last_autosave_tick: 0,
+        }
+    }
+
+    /// Create a serializable snapshot for saving.
+    pub fn to_save_data(&self) -> SaveData {
+        SaveData {
+            world: self.world.clone(),
+            agents: self.agents.clone(),
+            speed: self.speed,
+            events: self.events.clone(),
+            save_name: self.save_name.clone(),
+            rng_state_seed: self.world.seed.wrapping_add(self.world.tick),
+        }
+    }
+
+    /// Reconstruct a SimState from loaded save data.
+    pub fn from_save_data(data: SaveData) -> Self {
+        let rng = StdRng::seed_from_u64(data.rng_state_seed);
+        let last_tick = data.world.tick;
+        Self {
+            world: data.world,
+            agents: data.agents,
+            speed: data.speed,
+            events: data.events,
+            log_scroll: 0,
+            overlay: Overlay::None,
+            status_message: None,
+            rng,
+            save_name: data.save_name,
+            last_autosave_tick: last_tick,
         }
     }
 
@@ -121,9 +171,6 @@ impl SimState {
                     action.new_pos.1,
                     &self.world,
                 );
-                // Look up agent name by id (agent is currently borrowed mutably,
-                // so we grab the name before the action or use the id to find it).
-                // Since we're iterating agents, we can use the current agent's name.
                 let agent_name = agent.name.clone();
 
                 let description = prose_gen::generate_description(
@@ -208,9 +255,12 @@ impl SimState {
             });
         }
 
-        // If auto-scrolled (offset 0), stay pinned to bottom.
-        // If user has scrolled up, don't move their view.
-        let was_at_bottom = self.log_scroll == 0;
+        // If scrolled up, push scroll offset by the number of new events
+        // so the player's view stays on the same entries.
+        let new_count = new_events.len();
+        if self.log_scroll > 0 {
+            self.log_scroll += new_count;
+        }
 
         // Add new events to the log
         self.events.extend(new_events);
@@ -219,30 +269,23 @@ impl SimState {
         if self.events.len() > MAX_EVENTS {
             let drain_count = self.events.len() - MAX_EVENTS;
             self.events.drain(..drain_count);
-            // Adjust scroll offset so user's view doesn't jump
             if self.log_scroll > 0 {
                 self.log_scroll = self.log_scroll.saturating_sub(drain_count);
             }
         }
-
-        if was_at_bottom {
-            self.log_scroll = 0;
-        }
     }
 
     /// Run the appropriate number of ticks for the current speed setting.
-    /// frame_count is used to throttle slower speeds (1x runs every 3rd frame).
     pub fn step_frame(&mut self, frame_count: u64) {
         match self.speed {
             SimSpeed::Paused => {}
             SimSpeed::Run1x => {
-                // ~10 ticks/sec at 30 FPS
-                if frame_count % 3 == 0 {
+                // ~5 ticks/sec at 30 FPS — slow enough to read log entries
+                if frame_count % 6 == 0 {
                     self.tick();
                 }
             }
             SimSpeed::Run5x => {
-                // ~50 ticks/sec at 30 FPS (actually ~2 per frame * 30 = 60)
                 for _ in 0..2 {
                     self.tick();
                 }
