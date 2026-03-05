@@ -6,10 +6,22 @@ use ratatui::{
     Frame,
 };
 
-use crate::sim::SimState;
+use crate::sim::{Overlay, SimState};
 use crate::sim::world::{MAP_HEIGHT, MAP_WIDTH};
+use crate::ui::overlays;
+
+/// Colors assigned to agents based on their people_id.
+const PEOPLE_COLORS: [Color; 6] = [
+    Color::Magenta,
+    Color::Cyan,
+    Color::LightYellow,
+    Color::LightGreen,
+    Color::LightRed,
+    Color::LightBlue,
+];
 
 /// Draw the main two-panel layout: world map (left) and live log (right).
+/// Then draw any active overlay on top.
 pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -30,6 +42,23 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
     draw_map_panel(frame, panels[0], sim);
     draw_log_panel(frame, panels[1], sim);
     draw_status_bar(frame, chunks[1], sim);
+
+    // Draw overlays on top of the main layout
+    match &sim.overlay {
+        Overlay::None => {}
+        Overlay::InspectAgent(idx) => {
+            overlays::draw_inspect_overlay(frame, sim, *idx);
+        }
+        Overlay::AgentSearch(query) => {
+            overlays::draw_search_overlay(frame, sim, query);
+        }
+        Overlay::ExportMenu => {
+            overlays::draw_export_menu(frame);
+        }
+        Overlay::ExportInput(input) => {
+            overlays::draw_export_input(frame, input);
+        }
+    }
 }
 
 fn draw_map_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
@@ -40,7 +69,10 @@ fn draw_map_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
 
     let mut rendered = sim.world.render_map();
 
-    // Overlay living agents on the map
+    // Count agents per tile and track people_id for coloring
+    let mut agent_counts = vec![vec![0u32; MAP_WIDTH]; MAP_HEIGHT];
+    let mut agent_people = vec![vec![0usize; MAP_WIDTH]; MAP_HEIGHT];
+
     for agent in &sim.agents {
         if !agent.alive {
             continue;
@@ -48,7 +80,28 @@ fn draw_map_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
         let ax = agent.x as usize;
         let ay = agent.y as usize;
         if ay < MAP_HEIGHT && ax < MAP_WIDTH {
-            rendered[ay][ax] = ('@', Color::Magenta);
+            agent_counts[ay][ax] += 1;
+            agent_people[ay][ax] = agent.people_id;
+        }
+    }
+
+    // Overlay agents on the map
+    for y in 0..MAP_HEIGHT {
+        for x in 0..MAP_WIDTH {
+            let count = agent_counts[y][x];
+            if count == 0 {
+                continue;
+            }
+            let color = PEOPLE_COLORS[agent_people[y][x] % PEOPLE_COLORS.len()];
+            if count == 1 {
+                rendered[y][x] = ('@', color);
+            } else if count < 10 {
+                // Show digit for 2-9 agents on one tile
+                let ch = char::from_digit(count, 10).unwrap_or('*');
+                rendered[y][x] = (ch, color);
+            } else {
+                rendered[y][x] = ('*', color);
+            }
         }
     }
 
@@ -101,24 +154,17 @@ fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
     let mut all_lines: Vec<Line> = Vec::new();
 
     for event in &sim.events {
-        // Format: [tick] description
-        // The tick prefix is dim, the description is normal gray.
         let tick_str = format!("[{}] ", event.tick);
         let desc = &event.description;
-
-        // Word-wrap the description manually so we can color the tick prefix
-        // separately from the body text.
         let prefix_len = tick_str.len();
         let body_width = inner_width.saturating_sub(prefix_len);
 
         if body_width < 10 {
-            // Panel too narrow for wrapping; just truncate
             all_lines.push(Line::from(vec![
                 Span::styled(tick_str.clone(), Style::default().fg(Color::DarkGray)),
                 Span::styled(desc.clone(), Style::default().fg(Color::Gray)),
             ]));
         } else {
-            // First line gets the tick prefix
             let words: Vec<&str> = desc.split_whitespace().collect();
             let mut line_buf = String::new();
             let mut first = true;
@@ -128,7 +174,6 @@ fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
                 let limit = if first { body_width } else { inner_width };
 
                 if line_buf.len() + space + word.len() > limit && !line_buf.is_empty() {
-                    // Emit this line
                     if first {
                         all_lines.push(Line::from(vec![
                             Span::styled(tick_str.clone(), Style::default().fg(Color::DarkGray)),
@@ -136,7 +181,6 @@ fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
                         ]));
                         first = false;
                     } else {
-                        // Continuation lines indented with spaces matching tick prefix
                         let indent = " ".repeat(prefix_len);
                         all_lines.push(Line::from(vec![
                             Span::styled(indent, Style::default().fg(Color::DarkGray)),
@@ -152,7 +196,6 @@ fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
                 line_buf.push_str(word);
             }
 
-            // Emit remaining text
             if !line_buf.is_empty() {
                 if first {
                     all_lines.push(Line::from(vec![
@@ -170,7 +213,6 @@ fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
         }
     }
 
-    // Apply scroll offset: log_scroll=0 means show the most recent lines.
     let total = all_lines.len();
     let end = total.saturating_sub(sim.log_scroll);
     let start = end.saturating_sub(inner_height);
@@ -181,9 +223,17 @@ fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
 }
 
 fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
+    // If there's a temporary status message, show it instead of the default bar
+    if let Some((ref msg, _)) = sim.status_message {
+        let status = Paragraph::new(format!(" {}", msg))
+            .style(Style::default().fg(Color::Yellow).bg(Color::DarkGray));
+        frame.render_widget(status, area);
+        return;
+    }
+
     let alive_count = sim.agents.iter().filter(|a| a.alive).count();
     let status_text = format!(
-        " {}  |  Tick {}  |  {}  |  Pop: {}  |  SPACE=pause  .=step  1/5/2=speed  q=quit",
+        " {}  |  Tick {}  |  {}  |  Pop: {}  |  SPACE=pause  .=step  1/5/2=speed  i=inspect  e=export  q=quit",
         sim.world.name, sim.world.tick, sim.speed.label(), alive_count,
     );
     let status = Paragraph::new(status_text)

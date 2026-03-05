@@ -43,6 +43,20 @@ impl SimSpeed {
     }
 }
 
+/// Which UI overlay is currently active (if any).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Overlay {
+    None,
+    /// Inspecting a specific agent by index into the agents vec.
+    InspectAgent(usize),
+    /// Agent search: player is typing a name to find.
+    AgentSearch(String),
+    /// Export menu.
+    ExportMenu,
+    /// Export: player is typing a filename prefix.
+    ExportInput(String),
+}
+
 /// The complete simulation state.
 pub struct SimState {
     pub world: World,
@@ -52,6 +66,10 @@ pub struct SimState {
     pub events: Vec<Event>,
     /// Scroll offset for the log pane (0 = pinned to bottom / auto-scroll).
     pub log_scroll: usize,
+    /// Current UI overlay.
+    pub overlay: Overlay,
+    /// Temporary status message shown in the status bar (clears after a few frames).
+    pub status_message: Option<(String, u32)>,
     /// The RNG used for all simulation randomness.
     rng: StdRng,
 }
@@ -72,6 +90,8 @@ impl SimState {
             speed: SimSpeed::Paused,
             events: vec![genesis],
             log_scroll: 0,
+            overlay: Overlay::None,
+            status_message: None,
             rng,
         }
     }
@@ -211,10 +231,36 @@ impl SimState {
     }
 
     /// Run the appropriate number of ticks for the current speed setting.
-    pub fn step_frame(&mut self) {
-        let ticks = self.speed.ticks_per_frame();
-        for _ in 0..ticks {
-            self.tick();
+    /// frame_count is used to throttle slower speeds (1x runs every 3rd frame).
+    pub fn step_frame(&mut self, frame_count: u64) {
+        match self.speed {
+            SimSpeed::Paused => {}
+            SimSpeed::Run1x => {
+                // ~10 ticks/sec at 30 FPS
+                if frame_count % 3 == 0 {
+                    self.tick();
+                }
+            }
+            SimSpeed::Run5x => {
+                // ~50 ticks/sec at 30 FPS (actually ~2 per frame * 30 = 60)
+                for _ in 0..2 {
+                    self.tick();
+                }
+            }
+            SimSpeed::Run20x => {
+                for _ in 0..20 {
+                    self.tick();
+                }
+            }
+        }
+
+        // Tick down status message timer
+        if let Some((_, ref mut ttl)) = self.status_message {
+            if *ttl == 0 {
+                self.status_message = None;
+            } else {
+                *ttl -= 1;
+            }
         }
     }
 
@@ -227,5 +273,31 @@ impl SimState {
     /// Scroll the log down (toward present). 0 = pinned to bottom.
     pub fn scroll_log_down(&mut self, amount: usize) {
         self.log_scroll = self.log_scroll.saturating_sub(amount);
+    }
+
+    /// Set a temporary status bar message (shown for ~90 frames / ~3 seconds).
+    pub fn set_status_message(&mut self, msg: String) {
+        self.status_message = Some((msg, 90));
+    }
+
+    /// Find agents at a specific map position.
+    pub fn agents_at(&self, x: u32, y: u32) -> Vec<usize> {
+        self.agents
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| a.alive && a.x == x && a.y == y)
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Search agents by name (case-insensitive substring match).
+    pub fn search_agents(&self, query: &str) -> Vec<usize> {
+        let q = query.to_lowercase();
+        self.agents
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| a.alive && a.name.to_lowercase().contains(&q))
+            .map(|(i, _)| i)
+            .collect()
     }
 }
