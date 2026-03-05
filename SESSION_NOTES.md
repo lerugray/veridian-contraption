@@ -1,36 +1,47 @@
-# SESSION NOTES — Last updated: Phase 1-F
+# SESSION NOTES — Last updated: 2026-03-05
 
 ## Current State
-- Phase: 1-F (Main Menu & Save/Load) — COMPLETE
-- Last working feature: Full main menu, new world screen, save/load, autosave, Ctrl+S save
-- Files modified this session: main.rs, sim/mod.rs, export/mod.rs, ui/mod.rs, ui/menu.rs (new), ui/layout.rs, ui/overlays.rs
+- Phase: Phase 1 COMPLETE (all prompts 1-A through 1-F done)
+- Last working feature: Everything — main menu, world gen, agents, events, log, inspect, export, save/load, autosave
+- Build status: Compiles and runs cleanly (3 pre-existing warnings only)
 
-## What We Were Doing
-Implemented Phase 1-F: main menu system, new world screen with flavor presets and seed input, save/load system with JSON serialization, autosave every 500 ticks, Ctrl+S manual save, load world screen, and status bar showing save name.
+## What Was Done This Session
+- Implemented Phase 1-F: main menu, new world screen, save/load system, autosave, Ctrl+S save, load world screen
+- Fixed new world screen text cutoff (preset descriptions on separate lines)
+- Slowed 1x speed (tick every 6th frame instead of 3rd)
+- Fixed log scroll: view now stays pinned when scrolled up (event-based scrolling)
+- Made map scale to fill panel (distributes extra rows/columns evenly)
+- Restored speed controls in status bar (shortened labels to fit)
 
-## Decisions Made
-- AppMode enum in main.rs controls top-level state (MainMenu, NewWorld, LoadWorld, Generating, InGame)
-- SaveData struct in sim/mod.rs handles serialization (separate from SimState since StdRng can't serialize directly — RNG reconstructed from seed+tick hash on load)
-- Flavor presets are placeholder names only (full parametric implementation deferred to Phase 4 as designed)
-- Seed input uses FNV-1a hash to convert strings to u64 seeds
-- Save name input overlay (Overlay::SaveNameInput) added to the existing overlay system
-- Autosave fires in the main game loop, not inside SimState, since it needs file I/O
-- "Continue" option greyed out when no autosave.json exists
+## Files Modified This Session
+main.rs, sim/mod.rs, export/mod.rs, ui/mod.rs, ui/menu.rs (new), ui/layout.rs, ui/overlays.rs, CLAUDE.md, SESSION_NOTES.md
 
-## Known Issues / In Progress
+## Architecture Decisions
+- AppMode enum in main.rs: MainMenu, NewWorld, LoadWorld, Generating, InGame
+- SaveData struct separate from SimState (StdRng not serializable — RNG reconstructed from seed+tick)
+- log_scroll is event-count based (not display lines) for stable scroll anchoring
+- Map rendering scales tiles with distributed extra rows/columns to fill panel
+- Flavor presets are placeholder names only (Phase 4 for full parametric implementation)
+
+## Known Issues
 - Flavor presets don't affect world generation yet (by design — Phase 4)
-- No delete-save functionality on the Load World screen yet
-- No error display on menu screens if load fails (silently stays on current screen)
-- 3 pre-existing warnings from Phase 1-E code (unused method ticks_per_frame, agents_at, field old_pos)
+- No delete-save on Load World screen
+- No error display if load fails (silently stays on current screen)
+- 3 pre-existing warnings (unused ticks_per_frame, agents_at, old_pos field)
 
 ## Next Steps
-- Phase 2: Institutions & Language (institution simulation, phoneme-based names, epithets, faction record, follow mode)
+- Phase 2: Institutions & Language
+  - Institution simulation (factions, guilds, political entities)
+  - Institutional events (schisms, elections, doctrinal disputes, diplomacy)
+  - Phoneme-based name generation per people
+  - Title and epithet accumulation for agents
+  - Faction Record export
+  - Follow mode (track agent or faction in side panel)
 
 ## Notes for Next Claude
-- All Phase 1 prompts (1-A through 1-F) are complete. The game compiles and runs.
-- The app launches to a main menu. Arrow keys navigate, Enter selects.
-- New World screen lets you pick a flavor preset and enter a seed. Tab switches between preset selection and seed input.
-- Ctrl+S in-game opens a save name prompt. Enter saves to /saves/{name}.json.
-- Autosave writes to /saves/autosave.json every 500 ticks with a brief "~ autosaved" status message.
-- Load World screen lists all .json files in /saves/ for selection.
-- The status bar shows the save name (or "unsaved") alongside existing info.
+- Player is not a programmer — explain decisions briefly, don't ask them to edit code
+- The app launches to a main menu. New World lets you pick presets and enter a seed.
+- Ctrl+S saves, autosave every 500 ticks to saves/autosave.json
+- 1x speed ticks every 6th frame (~5 ticks/sec). 5x = 2 per frame. 20x = 20 per frame.
+- Map is 60x30 tiles but renderer scales to fill panel dynamically
+- All commits pushed to remote on main branch
