@@ -1,12 +1,15 @@
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
+use std::collections::HashMap;
+
 use crate::gen::name_gen;
 use crate::sim::agent::{Agent, Disposition, Goal};
+use crate::sim::institution::{Institution, InstitutionKind};
 use crate::sim::world::*;
 
 /// Generate a complete world from a seed.
-pub fn generate_world(seed: u64) -> (World, Vec<Agent>) {
+pub fn generate_world(seed: u64) -> (World, Vec<Agent>, Vec<Institution>) {
     let mut rng = StdRng::seed_from_u64(seed);
     let phonemes = name_gen::load_phoneme_data();
 
@@ -27,7 +30,8 @@ pub fn generate_world(seed: u64) -> (World, Vec<Agent>) {
         );
     }
 
-    let agents = generate_agents(&settlements, &peoples, &phonemes, &mut rng);
+    let mut agents = generate_agents(&settlements, &peoples, &phonemes, &mut rng);
+    let institutions = generate_institutions(&settlements, &peoples, &phonemes, &mut agents, &mut rng);
 
     let world = World {
         seed,
@@ -38,7 +42,7 @@ pub fn generate_world(seed: u64) -> (World, Vec<Agent>) {
         tick: 0,
     };
 
-    (world, agents)
+    (world, agents, institutions)
 }
 
 // ---------------------------------------------------------------------------
@@ -256,10 +260,109 @@ fn generate_agents(
             alive: true,
             epithets: Vec::new(),
             last_epithet_tick: 0,
+            institution_ids: Vec::new(),
         });
     }
 
     agents
+}
+
+// ---------------------------------------------------------------------------
+// Peoples generation
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Institution generation
+// ---------------------------------------------------------------------------
+
+/// Generate 4-8 starting institutions distributed across peoples.
+fn generate_institutions(
+    settlements: &[Settlement],
+    peoples: &[People],
+    phonemes: &[name_gen::PhonemeSet],
+    agents: &mut [Agent],
+    rng: &mut StdRng,
+) -> Vec<Institution> {
+    let count = rng.gen_range(4..=8);
+    let mut institutions = Vec::new();
+    let all_kinds = [
+        InstitutionKind::Guild,
+        InstitutionKind::Government,
+        InstitutionKind::Cult,
+        InstitutionKind::MercenaryCompany,
+        InstitutionKind::RegulatoryBody,
+        InstitutionKind::SecretSociety,
+    ];
+
+    for i in 0..count {
+        let people_id = i % peoples.len();
+        let kind = all_kinds[rng.gen_range(0..all_kinds.len())].clone();
+        let name = name_gen::generate_institution_name(&kind, phonemes, people_id, rng);
+        let charter = name_gen::generate_charter(&kind, rng);
+        let actual_function = name_gen::generate_actual_function(&kind, rng);
+        let doctrine = name_gen::generate_doctrines(&kind, rng);
+
+        // Pick a settlement as base of operations
+        let settlement_idx = rng.gen_range(0..settlements.len());
+        let base = &settlements[settlement_idx];
+        let territory = vec![(base.x as u32, base.y as u32)];
+
+        // Assign 3-8 members from matching people (or any if not enough)
+        let member_count = rng.gen_range(3..=8);
+        let mut member_ids = Vec::new();
+
+        // Prefer agents of the same people who aren't already in 2 institutions
+        let mut candidates: Vec<usize> = agents.iter()
+            .enumerate()
+            .filter(|(_, a)| a.alive && a.people_id == people_id && a.institution_ids.len() < 2)
+            .map(|(idx, _)| idx)
+            .collect();
+
+        // If not enough from same people, add any unaffiliated agents
+        if candidates.len() < member_count {
+            let extras: Vec<usize> = agents.iter()
+                .enumerate()
+                .filter(|(idx, a)| {
+                    a.alive && a.institution_ids.is_empty() && !candidates.contains(idx)
+                })
+                .map(|(idx, _)| idx)
+                .collect();
+            candidates.extend(extras);
+        }
+
+        // Shuffle candidates and take up to member_count
+        for _ in 0..candidates.len().min(100) {
+            let a = rng.gen_range(0..candidates.len());
+            let b = rng.gen_range(0..candidates.len());
+            candidates.swap(a, b);
+        }
+
+        for &ci in candidates.iter().take(member_count) {
+            member_ids.push(agents[ci].id);
+            agents[ci].institution_ids.push(i as u64);
+        }
+
+        let chronicle_entry = format!("Founded at {}. Charter: {}", base.name, charter);
+
+        institutions.push(Institution {
+            id: i as u64,
+            name,
+            kind,
+            charter,
+            actual_function,
+            power: rng.gen_range(10..=30),
+            doctrine,
+            member_ids,
+            territory,
+            founded_tick: 0,
+            relationships: HashMap::new(),
+            chronicle: vec![chronicle_entry],
+            people_id,
+            alive: true,
+        });
+    }
+
+    institutions
 }
 
 // ---------------------------------------------------------------------------

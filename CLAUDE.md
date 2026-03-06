@@ -100,9 +100,9 @@ prose, and runs continuously whether the player interacts or not.
 
 ```
 CURRENT PHASE: Phase 2 IN PROGRESS
-LAST COMPLETED PROMPT: 2-A — Phoneme-Based Name Generation & Epithets
+LAST COMPLETED PROMPT: 2-B — Institution Simulation & Institutional Events
 STATUS: Working
-NEXT TASK: Phase 2-B — Institution Simulation & Institutional Events
+NEXT TASK: Phase 2-C — Faction Record Export & Follow Mode
 ```
 
 ---

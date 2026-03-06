@@ -34,6 +34,15 @@ pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize)
             }
         }
         Goal::Rest(ticks) => format!("Resting ({} ticks remaining)", ticks),
+        Goal::JoinInstitution(id) => {
+            let name = sim.institution_name(*id).unwrap_or("unknown body");
+            format!("Seeking to join {}", name)
+        }
+        Goal::AdvanceInInstitution(id) => {
+            let name = sim.institution_name(*id).unwrap_or("unknown body");
+            format!("Advancing in {}", name)
+        }
+        Goal::FoundInstitution => "Planning to found an institution".to_string(),
     };
 
     let alive_str = if agent.alive { "Alive" } else { "Deceased" };
@@ -82,6 +91,22 @@ pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize)
                 Style::default().fg(if i == 0 { Color::Yellow } else { Color::DarkGray }),
             )));
         }
+    }
+
+    // Institutional affiliations
+    if !agent.institution_ids.is_empty() {
+        lines.push(Line::from(Span::styled(" AFFILIATIONS", Style::default().fg(Color::White))));
+        for &inst_id in &agent.institution_ids {
+            if let Some(inst) = sim.institutions.iter().find(|i| i.id == inst_id) {
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(&inst.name, Style::default().fg(Color::Cyan)),
+                    Span::styled(format!(" ({})", inst.kind.label()), Style::default().fg(Color::DarkGray)),
+                ]));
+            }
+        }
+    } else {
+        lines.push(Line::from(Span::styled(" AFFILIATIONS: None", Style::default().fg(Color::DarkGray))));
     }
 
     lines.extend(vec![
@@ -202,7 +227,7 @@ pub fn draw_search_overlay(frame: &mut Frame, sim: &SimState, query: &str, selec
 
 /// Draw the agent list overlay (Tab key — browsable list of all living agents).
 pub fn draw_agent_list(frame: &mut Frame, sim: &SimState, selected: usize) {
-    let area = centered_rect(55, 70, frame.area());
+    let area = centered_rect(80, 70, frame.area());
     frame.render_widget(Clear, area);
 
     let living = sim.living_agent_indices();
@@ -235,8 +260,22 @@ pub fn draw_agent_list(frame: &mut Frame, sim: &SimState, selected: usize) {
             let prefix = if is_selected { " > " } else { "   " };
             let color = if is_selected { Color::Green } else { Color::Gray };
             let loc = prose_gen::nearest_settlement_name(a.x, a.y, &sim.world);
+
+            // Show institution affiliation if any
+            let affil = if a.institution_ids.is_empty() {
+                String::new()
+            } else {
+                let names: Vec<&str> = a.institution_ids.iter()
+                    .filter_map(|&id| sim.institutions.iter().find(|i| i.id == id).map(|i| i.name.as_str()))
+                    .collect();
+                if names.is_empty() { String::new() } else { format!(" [{}]", names.join(", ")) }
+            };
+
+            // Show epithet if any
+            let epithet = a.epithets.last().map(|e| format!(" {}", e)).unwrap_or_default();
+
             lines.push(Line::from(Span::styled(
-                format!("{}{} — age {}, near {}", prefix, a.name, a.age / 365, loc),
+                format!("{}{}{} — age {}, near {}{}", prefix, a.name, epithet, a.age / 365, loc, affil),
                 Style::default().fg(color),
             )));
         }
@@ -256,6 +295,92 @@ pub fn draw_agent_list(frame: &mut Frame, sim: &SimState, selected: usize) {
         .title(" AGENTS ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Magenta));
+
+    let widget = Paragraph::new(lines).block(block);
+    frame.render_widget(widget, area);
+}
+
+/// Draw the faction list overlay (f key — browsable list of all institutions).
+pub fn draw_faction_list(frame: &mut Frame, sim: &SimState, selected: usize) {
+    let area = centered_rect(65, 75, frame.area());
+    frame.render_widget(Clear, area);
+
+    let living = sim.living_institution_indices();
+    let inner_height = area.height.saturating_sub(5) as usize;
+
+    let mut lines: Vec<Line> = vec![
+        Line::from(Span::styled(
+            format!(" {} active institutions", living.len()),
+            Style::default().fg(Color::White),
+        )),
+        Line::from(""),
+    ];
+
+    if living.is_empty() {
+        lines.push(Line::from(Span::styled(" No active institutions.", Style::default().fg(Color::DarkGray))));
+    } else {
+        let visible_count = inner_height.saturating_sub(4);
+        let scroll_start = if selected >= visible_count {
+            selected - visible_count + 1
+        } else {
+            0
+        };
+        let scroll_end = (scroll_start + visible_count).min(living.len());
+
+        for i in scroll_start..scroll_end {
+            let idx = living[i];
+            let inst = &sim.institutions[idx];
+            let is_selected = i == selected;
+            let prefix = if is_selected { " > " } else { "   " };
+            let name_color = if is_selected { Color::Green } else { Color::Cyan };
+
+            // Institution name and kind
+            lines.push(Line::from(vec![
+                Span::styled(prefix, Style::default()),
+                Span::styled(&inst.name, Style::default().fg(name_color)),
+            ]));
+
+            // Details line: kind, power, members
+            let detail = format!(
+                "     {} | Power: {} | Members: {} | {}",
+                inst.kind.label(),
+                inst.power,
+                inst.member_ids.len(),
+                inst.summary(),
+            );
+            lines.push(Line::from(Span::styled(
+                detail,
+                Style::default().fg(Color::DarkGray),
+            )));
+
+            // Show relationships if selected
+            if is_selected && !inst.relationships.is_empty() {
+                for (&other_id, rel) in &inst.relationships {
+                    if let Some(other) = sim.institutions.iter().find(|i| i.id == other_id) {
+                        lines.push(Line::from(Span::styled(
+                            format!("       {} — {}", other.name, rel.label()),
+                            Style::default().fg(Color::DarkGray),
+                        )));
+                    }
+                }
+            }
+        }
+
+        if scroll_end < living.len() {
+            lines.push(Line::from(Span::styled(
+                format!("  ... {} more below", living.len() - scroll_end),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(" Up/Down=browse  ESC=close", Style::default().fg(Color::DarkGray))));
+
+    let block = Block::default()
+        .title(" FACTIONS ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow));
 
     let widget = Paragraph::new(lines).block(block);
     frame.render_widget(widget, area);

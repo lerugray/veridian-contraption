@@ -55,6 +55,9 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
         Overlay::AgentList(selected) => {
             overlays::draw_agent_list(frame, sim, *selected);
         }
+        Overlay::FactionList(selected) => {
+            overlays::draw_faction_list(frame, sim, *selected);
+        }
         Overlay::ExportMenu => {
             overlays::draw_export_menu(frame);
         }
@@ -193,11 +196,12 @@ fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
         let desc = &event.description;
         let prefix_len = tick_str.len();
         let body_width = inner_width.saturating_sub(prefix_len);
+        let text_color = event.event_type.log_color();
 
         if body_width < 10 {
             all_lines.push(Line::from(vec![
                 Span::styled(tick_str.clone(), Style::default().fg(Color::DarkGray)),
-                Span::styled(desc.clone(), Style::default().fg(Color::Gray)),
+                Span::styled(desc.clone(), Style::default().fg(text_color)),
             ]));
         } else {
             let words: Vec<&str> = desc.split_whitespace().collect();
@@ -206,20 +210,20 @@ fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
 
             for word in &words {
                 let space = if line_buf.is_empty() { 0 } else { 1 };
-                let limit = if first { body_width } else { inner_width };
+                let limit = body_width;
 
                 if line_buf.len() + space + word.len() > limit && !line_buf.is_empty() {
                     if first {
                         all_lines.push(Line::from(vec![
                             Span::styled(tick_str.clone(), Style::default().fg(Color::DarkGray)),
-                            Span::styled(line_buf.clone(), Style::default().fg(Color::Gray)),
+                            Span::styled(line_buf.clone(), Style::default().fg(text_color)),
                         ]));
                         first = false;
                     } else {
                         let indent = " ".repeat(prefix_len);
                         all_lines.push(Line::from(vec![
                             Span::styled(indent, Style::default().fg(Color::DarkGray)),
-                            Span::styled(line_buf.clone(), Style::default().fg(Color::Gray)),
+                            Span::styled(line_buf.clone(), Style::default().fg(text_color)),
                         ]));
                     }
                     line_buf.clear();
@@ -235,13 +239,13 @@ fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
                 if first {
                     all_lines.push(Line::from(vec![
                         Span::styled(tick_str.clone(), Style::default().fg(Color::DarkGray)),
-                        Span::styled(line_buf, Style::default().fg(Color::Gray)),
+                        Span::styled(line_buf, Style::default().fg(text_color)),
                     ]));
                 } else {
                     let indent = " ".repeat(prefix_len);
                     all_lines.push(Line::from(vec![
                         Span::styled(indent, Style::default().fg(Color::DarkGray)),
-                        Span::styled(line_buf, Style::default().fg(Color::Gray)),
+                        Span::styled(line_buf, Style::default().fg(text_color)),
                     ]));
                 }
             }
@@ -272,7 +276,7 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
         .as_deref()
         .unwrap_or("unsaved");
     let status_text = format!(
-        " {}  |  Tick {}  |  {}  |  Pop: {}  |  [{}]  |  SPACE .=step 1/5/2=spd Tab=agents i=find e=export ^S=save q=menu",
+        " {}  |  Tick {}  |  {}  |  Pop: {}  |  [{}]  |  SPACE .=step 1/5/2=spd Tab=agents i=find f=factions e=export ^S=save q=menu",
         sim.world.name, sim.world.tick, sim.speed.label(), alive_count, save_label,
     );
     let status = Paragraph::new(status_text)

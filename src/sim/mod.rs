@@ -1,6 +1,7 @@
 pub mod world;
 pub mod agent;
 pub mod event;
+pub mod institution;
 
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -10,6 +11,7 @@ use crate::gen::name_gen;
 use crate::gen::prose_gen;
 use crate::sim::agent::Agent;
 use crate::sim::event::{Event, EventType};
+use crate::sim::institution::Institution;
 use crate::sim::world::World;
 
 /// Maximum number of events kept in the log ring buffer.
@@ -60,6 +62,8 @@ pub enum Overlay {
     ExportInput(String),
     /// Save: player is typing a save name (Ctrl+S).
     SaveNameInput(String),
+    /// Faction list overlay. (selected index)
+    FactionList(usize),
     /// Quit confirm: return to main menu? (selected option: 0=save&return, 1=return, 2=cancel)
     QuitConfirm(usize),
 }
@@ -69,6 +73,8 @@ pub enum Overlay {
 pub struct SaveData {
     pub world: World,
     pub agents: Vec<Agent>,
+    #[serde(default)]
+    pub institutions: Vec<Institution>,
     pub speed: SimSpeed,
     pub events: Vec<Event>,
     pub save_name: Option<String>,
@@ -80,6 +86,7 @@ pub struct SaveData {
 pub struct SimState {
     pub world: World,
     pub agents: Vec<Agent>,
+    pub institutions: Vec<Institution>,
     pub speed: SimSpeed,
     /// Event log (ring buffer, most recent at end).
     pub events: Vec<Event>,
@@ -98,11 +105,14 @@ pub struct SimState {
     pub save_name: Option<String>,
     /// Tick at which last autosave fired (to avoid double-saving).
     pub last_autosave_tick: u64,
+    /// Next institution ID to assign.
+    pub next_institution_id: u64,
 }
 
 impl SimState {
-    pub fn new(world: World, agents: Vec<Agent>) -> Self {
+    pub fn new(world: World, agents: Vec<Agent>, institutions: Vec<Institution>) -> Self {
         let rng = StdRng::seed_from_u64(world.seed.wrapping_add(1));
+        let next_id = institutions.iter().map(|i| i.id + 1).max().unwrap_or(0);
         let genesis = Event {
             tick: 0,
             event_type: EventType::WorldGenesis,
@@ -113,6 +123,7 @@ impl SimState {
         Self {
             world,
             agents,
+            institutions,
             speed: SimSpeed::Paused,
             events: vec![genesis],
             log_scroll: 0,
@@ -122,6 +133,7 @@ impl SimState {
             rng,
             save_name: None,
             last_autosave_tick: 0,
+            next_institution_id: next_id,
         }
     }
 
@@ -130,6 +142,7 @@ impl SimState {
         SaveData {
             world: self.world.clone(),
             agents: self.agents.clone(),
+            institutions: self.institutions.clone(),
             speed: self.speed,
             events: self.events.clone(),
             save_name: self.save_name.clone(),
@@ -141,9 +154,11 @@ impl SimState {
     pub fn from_save_data(data: SaveData) -> Self {
         let rng = StdRng::seed_from_u64(data.rng_state_seed);
         let last_tick = data.world.tick;
+        let next_id = data.institutions.iter().map(|i| i.id + 1).max().unwrap_or(0);
         Self {
             world: data.world,
             agents: data.agents,
+            institutions: data.institutions,
             speed: data.speed,
             events: data.events,
             log_scroll: 0,
@@ -153,6 +168,7 @@ impl SimState {
             rng,
             save_name: data.save_name,
             last_autosave_tick: last_tick,
+            next_institution_id: next_id,
         }
     }
 
@@ -265,6 +281,10 @@ impl SimState {
             });
         }
 
+        // --- Institutional simulation ---
+        let mut inst_events = self.process_institutional_tick(tick);
+        new_events.append(&mut inst_events);
+
         // Generate epithets for agents who had notable events this tick.
         // Each agent can gain at most one epithet, and only if 50+ ticks since the last.
         for event in &new_events {
@@ -305,6 +325,504 @@ impl SimState {
                 *frozen = frozen.saturating_sub(drain_count);
             }
         }
+    }
+
+    /// Process institutional events for one tick.
+    fn process_institutional_tick(&mut self, tick: u64) -> Vec<Event> {
+        let mut events = Vec::new();
+        let phonemes = name_gen::load_phoneme_data();
+
+        // Agent goals: JoinInstitution, AdvanceInInstitution, FoundInstitution
+        // Check every 10 ticks to reduce per-tick overhead.
+        if tick % 10 == 0 {
+            let mut founding_agents: Vec<usize> = Vec::new();
+            let mut joining_agents: Vec<(usize, u64)> = Vec::new();
+
+            for (ai, agent) in self.agents.iter().enumerate() {
+                if !agent.alive { continue; }
+                match &agent.current_goal {
+                    agent::Goal::FoundInstitution => {
+                        if agent.institution_ids.len() < 2 {
+                            founding_agents.push(ai);
+                        }
+                    }
+                    agent::Goal::JoinInstitution(inst_id) => {
+                        joining_agents.push((ai, *inst_id));
+                    }
+                    _ => {}
+                }
+            }
+
+            // Process foundings
+            for ai in founding_agents {
+                let agent = &self.agents[ai];
+                let people_id = agent.people_id;
+                let agent_name = agent.display_name();
+                let agent_id = agent.id;
+                let loc = (agent.x, agent.y);
+
+                let kind = match self.rng.gen_range(0..6) {
+                    0 => institution::InstitutionKind::Guild,
+                    1 => institution::InstitutionKind::Government,
+                    2 => institution::InstitutionKind::Cult,
+                    3 => institution::InstitutionKind::MercenaryCompany,
+                    4 => institution::InstitutionKind::RegulatoryBody,
+                    _ => institution::InstitutionKind::SecretSociety,
+                };
+
+                let inst_name = name_gen::generate_institution_name(&kind, &phonemes, people_id, &mut self.rng);
+                let charter = name_gen::generate_charter(&kind, &mut self.rng);
+                let actual_function = name_gen::generate_actual_function(&kind, &mut self.rng);
+                let doctrine = name_gen::generate_doctrines(&kind, &mut self.rng);
+
+                let inst_id = self.next_institution_id;
+                self.next_institution_id += 1;
+
+                let loc_name = prose_gen::nearest_settlement_name(loc.0, loc.1, &self.world);
+                let chronicle_entry = format!(
+                    "Founded in {} by {} for the purpose of: {}",
+                    loc_name, agent_name, charter
+                );
+
+                let inst = Institution {
+                    id: inst_id,
+                    name: inst_name.clone(),
+                    kind,
+                    charter,
+                    actual_function,
+                    power: self.rng.gen_range(5..=20),
+                    doctrine,
+                    member_ids: vec![agent_id],
+                    territory: vec![loc],
+                    founded_tick: tick,
+                    relationships: std::collections::HashMap::new(),
+                    chronicle: vec![chronicle_entry],
+                    people_id,
+                    alive: true,
+                };
+                self.institutions.push(inst);
+
+                self.agents[ai].institution_ids.push(inst_id);
+                self.agents[ai].current_goal = agent::Goal::Wander;
+
+                let description = prose_gen::generate_institutional_description(
+                    &EventType::InstitutionFounded,
+                    Some(&agent_name),
+                    Some(&inst_name),
+                    Some(&loc_name),
+                    &mut self.rng,
+                );
+                events.push(Event {
+                    tick,
+                    event_type: EventType::InstitutionFounded,
+                    subject_id: Some(agent_id),
+                    location: Some(loc),
+                    description,
+                });
+            }
+
+            // Process joins
+            for (ai, inst_id) in joining_agents {
+                let inst_alive = self.institutions.iter().any(|i| i.id == inst_id && i.alive);
+                if !inst_alive || self.agents[ai].institution_ids.len() >= 2 {
+                    self.agents[ai].current_goal = agent::Goal::Wander;
+                    continue;
+                }
+                let agent_name = self.agents[ai].display_name();
+                let agent_id = self.agents[ai].id;
+                let loc = (self.agents[ai].x, self.agents[ai].y);
+
+                if let Some(inst) = self.institutions.iter_mut().find(|i| i.id == inst_id) {
+                    if !inst.member_ids.contains(&agent_id) {
+                        inst.member_ids.push(agent_id);
+                        let loc_name = prose_gen::nearest_settlement_name(loc.0, loc.1, &self.world);
+                        inst.chronicle.push(format!("{} joined near {}", agent_name, loc_name));
+
+                        let inst_name = inst.name.clone();
+                        self.agents[ai].institution_ids.push(inst_id);
+
+                        let description = prose_gen::generate_institutional_description(
+                            &EventType::MemberJoined,
+                            Some(&agent_name),
+                            Some(&inst_name),
+                            None,
+                            &mut self.rng,
+                        );
+                        events.push(Event {
+                            tick,
+                            event_type: EventType::MemberJoined,
+                            subject_id: Some(agent_id),
+                            location: Some(loc),
+                            description,
+                        });
+                    }
+                }
+                self.agents[ai].current_goal = agent::Goal::Wander;
+            }
+        }
+
+        // Unaffiliated agents with moderate+ loyalty sometimes seek to join an institution.
+        // Check a few agents per tick to spread the load.
+        if !self.institutions.is_empty() {
+            let alive_institutions: Vec<u64> = self.institutions.iter()
+                .filter(|i| i.alive)
+                .map(|i| i.id)
+                .collect();
+
+            if !alive_institutions.is_empty() {
+                for agent in &mut self.agents {
+                    if !agent.alive || !agent.institution_ids.is_empty() { continue; }
+                    if !matches!(agent.current_goal, agent::Goal::Wander) { continue; }
+                    if agent.disposition.institutional_loyalty > 0.4 && self.rng.gen_bool(0.005) {
+                        let inst_id = alive_institutions[self.rng.gen_range(0..alive_institutions.len())];
+                        agent.current_goal = agent::Goal::JoinInstitution(inst_id);
+                    }
+                }
+            }
+        }
+
+        // Periodic institutional events — every 75 ticks, pick a random living institution
+        if tick % 75 == 0 && !self.institutions.is_empty() {
+            let alive_indices: Vec<usize> = self.institutions.iter()
+                .enumerate()
+                .filter(|(_, i)| i.alive)
+                .map(|(idx, _)| idx)
+                .collect();
+
+            if !alive_indices.is_empty() {
+                let inst_idx = alive_indices[self.rng.gen_range(0..alive_indices.len())];
+                let event = self.generate_institutional_event(inst_idx, tick, &phonemes);
+                if let Some(e) = event {
+                    events.push(e);
+                }
+            }
+        }
+
+        // Relationship events — every 150 ticks, check if institutions develop opinions
+        if tick % 150 == 0 {
+            let alive_ids: Vec<u64> = self.institutions.iter()
+                .filter(|i| i.alive)
+                .map(|i| i.id)
+                .collect();
+
+            if alive_ids.len() >= 2 {
+                let a_id = alive_ids[self.rng.gen_range(0..alive_ids.len())];
+                let mut b_id = alive_ids[self.rng.gen_range(0..alive_ids.len())];
+                let mut attempts = 0;
+                while b_id == a_id && attempts < 10 {
+                    b_id = alive_ids[self.rng.gen_range(0..alive_ids.len())];
+                    attempts += 1;
+                }
+                if a_id != b_id {
+                    if let Some(e) = self.generate_relationship_event(a_id, b_id, tick) {
+                        events.push(e);
+                    }
+                }
+            }
+        }
+
+        // Member departure/expulsion — every 80 ticks
+        if tick % 80 == 0 {
+            if let Some(e) = self.process_member_departure(tick) {
+                events.push(e);
+            }
+        }
+
+        // Dissolve institutions with 0 members (check every 200 ticks)
+        if tick % 200 == 0 {
+            for inst in &mut self.institutions {
+                if !inst.alive { continue; }
+                // Remove dead agents from member lists
+                let living_ids: std::collections::HashSet<u64> = self.agents.iter()
+                    .filter(|a| a.alive)
+                    .map(|a| a.id)
+                    .collect();
+                inst.member_ids.retain(|id| living_ids.contains(id));
+
+                if inst.member_ids.is_empty() {
+                    inst.alive = false;
+                    let inst_name = inst.name.clone();
+                    inst.chronicle.push("Dissolved due to lack of members.".to_string());
+                    events.push(Event {
+                        tick,
+                        event_type: EventType::InstitutionDissolved,
+                        subject_id: None,
+                        location: None,
+                        description: prose_gen::generate_institutional_description(
+                            &EventType::InstitutionDissolved,
+                            None,
+                            Some(&inst_name),
+                            None,
+                            &mut self.rng,
+                        ),
+                    });
+                }
+            }
+        }
+
+        events
+    }
+
+    /// Generate a periodic institutional event (schism, doctrine shift, etc.)
+    fn generate_institutional_event(
+        &mut self,
+        inst_idx: usize,
+        tick: u64,
+        phonemes: &[name_gen::PhonemeSet],
+    ) -> Option<Event> {
+        let inst = &self.institutions[inst_idx];
+        let inst_name = inst.name.clone();
+        let people_id = inst.people_id;
+        let member_count = inst.member_ids.len();
+
+        let roll: f32 = self.rng.gen();
+
+        // Schism — only if institution has 4+ members
+        if roll < 0.15 && member_count >= 4 {
+            // Split: create a new institution with half the members
+            let split_count = member_count / 2;
+            let split_members: Vec<u64> = inst.member_ids[..split_count].to_vec();
+            let remaining: Vec<u64> = inst.member_ids[split_count..].to_vec();
+
+            let new_kind = inst.kind.clone();
+            let new_name = name_gen::generate_institution_name(&new_kind, phonemes, people_id, &mut self.rng);
+            let new_charter = name_gen::generate_charter(&new_kind, &mut self.rng);
+            let new_doctrines = name_gen::generate_doctrines(&new_kind, &mut self.rng);
+
+            let new_id = self.next_institution_id;
+            self.next_institution_id += 1;
+
+            let mut relationships = std::collections::HashMap::new();
+            relationships.insert(inst.id, institution::InstitutionRelationship::Rival);
+
+            let new_inst = Institution {
+                id: new_id,
+                name: new_name.clone(),
+                kind: new_kind,
+                charter: new_charter,
+                actual_function: name_gen::generate_actual_function(&inst.kind, &mut self.rng),
+                power: inst.power / 2,
+                doctrine: new_doctrines,
+                member_ids: split_members.clone(),
+                territory: inst.territory.clone(),
+                founded_tick: tick,
+                relationships,
+                chronicle: vec![format!("Split from {} over doctrinal differences", inst_name)],
+                people_id,
+                alive: true,
+            };
+
+            // Update old institution
+            let inst = &mut self.institutions[inst_idx];
+            inst.member_ids = remaining;
+            inst.power = inst.power / 2 + 1;
+            inst.relationships.insert(new_id, institution::InstitutionRelationship::Rival);
+            inst.chronicle.push(format!("Suffered a schism; {} departed to form {}", split_count, new_name));
+
+            // Update split members' affiliations
+            for &aid in &split_members {
+                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == aid) {
+                    agent.institution_ids.retain(|&id| id != inst.id);
+                    agent.institution_ids.push(new_id);
+                }
+            }
+
+            self.institutions.push(new_inst);
+
+            let description = prose_gen::generate_institutional_description(
+                &EventType::SchismOccurred,
+                None,
+                Some(&inst_name),
+                None,
+                &mut self.rng,
+            );
+            return Some(Event {
+                tick,
+                event_type: EventType::SchismOccurred,
+                subject_id: None,
+                location: None,
+                description: format!("{} The dissenting faction reconstituted as {}.", description, new_name),
+            });
+        }
+
+        // Doctrine shift
+        if roll < 0.45 && !inst.doctrine.is_empty() {
+            let old_idx = self.rng.gen_range(0..inst.doctrine.len());
+            let old_doctrine = self.institutions[inst_idx].doctrine[old_idx].clone();
+            let new_doctrines = name_gen::generate_doctrines(&inst.kind, &mut self.rng);
+            if let Some(new_d) = new_doctrines.into_iter().find(|d| d != &old_doctrine) {
+                self.institutions[inst_idx].doctrine[old_idx] = new_d.clone();
+                self.institutions[inst_idx].chronicle.push(
+                    format!("Officially revised position: '{}' replaced by '{}'", old_doctrine, new_d)
+                );
+
+                let description = prose_gen::generate_institutional_description(
+                    &EventType::DoctrineShifted,
+                    None,
+                    Some(&inst_name),
+                    None,
+                    &mut self.rng,
+                );
+                return Some(Event {
+                    tick,
+                    event_type: EventType::DoctrineShifted,
+                    subject_id: None,
+                    location: None,
+                    description,
+                });
+            }
+        }
+
+        // Power shift — institution gains or loses influence
+        if roll < 0.7 {
+            let change: i32 = self.rng.gen_range(-3..=5);
+            let inst = &mut self.institutions[inst_idx];
+            inst.power = (inst.power as i32 + change).max(1) as u32;
+            // Not interesting enough for a log event on its own
+            return None;
+        }
+
+        None
+    }
+
+    /// Generate a relationship event between two institutions.
+    fn generate_relationship_event(&mut self, a_id: u64, b_id: u64, tick: u64) -> Option<Event> {
+        let a_idx = self.institutions.iter().position(|i| i.id == a_id)?;
+        let b_idx = self.institutions.iter().position(|i| i.id == b_id)?;
+
+        let a_name = self.institutions[a_idx].name.clone();
+        let b_name = self.institutions[b_idx].name.clone();
+
+        let roll: f32 = self.rng.gen();
+        let (event_type, relationship, description_extra) = if roll < 0.3 {
+            (
+                EventType::AllianceFormed,
+                institution::InstitutionRelationship::Allied,
+                format!("{} and {} have entered into a formal alliance.", a_name, b_name),
+            )
+        } else if roll < 0.55 {
+            (
+                EventType::RivalryDeclared,
+                institution::InstitutionRelationship::Rival,
+                format!("{} has declared {} a rival organization.", a_name, b_name),
+            )
+        } else if roll < 0.75 {
+            let disputes = [
+                "a boundary matter", "a question of precedence", "an unpaid obligation",
+                "a doctrinal disagreement", "a personnel dispute", "a jurisdictional claim",
+            ];
+            let reason = disputes[self.rng.gen_range(0..disputes.len())];
+            (
+                EventType::AllianceStrained,
+                institution::InstitutionRelationship::Disputed(reason.to_string()),
+                format!("Relations between {} and {} have become strained over {}.", a_name, b_name, reason),
+            )
+        } else {
+            return None; // No change
+        };
+
+        let mirror = match &relationship {
+            institution::InstitutionRelationship::Allied => institution::InstitutionRelationship::Allied,
+            institution::InstitutionRelationship::Rival => institution::InstitutionRelationship::Rival,
+            institution::InstitutionRelationship::Disputed(r) => institution::InstitutionRelationship::Disputed(r.clone()),
+            institution::InstitutionRelationship::Neutral => institution::InstitutionRelationship::Neutral,
+        };
+
+        self.institutions[a_idx].relationships.insert(b_id, relationship);
+        self.institutions[a_idx].chronicle.push(description_extra.clone());
+        self.institutions[b_idx].relationships.insert(a_id, mirror);
+        self.institutions[b_idx].chronicle.push(description_extra.clone());
+
+        let description = prose_gen::generate_institutional_description(
+            &event_type,
+            None,
+            Some(&a_name),
+            Some(&b_name),
+            &mut self.rng,
+        );
+
+        Some(Event {
+            tick,
+            event_type,
+            subject_id: None,
+            location: None,
+            description,
+        })
+    }
+
+    /// Process a member departure or expulsion.
+    fn process_member_departure(&mut self, tick: u64) -> Option<Event> {
+        // Find an agent who might leave their institution
+        let candidates: Vec<usize> = self.agents.iter()
+            .enumerate()
+            .filter(|(_, a)| a.alive && !a.institution_ids.is_empty())
+            .map(|(i, _)| i)
+            .collect();
+
+        if candidates.is_empty() { return None; }
+
+        let ai = candidates[self.rng.gen_range(0..candidates.len())];
+        let agent = &self.agents[ai];
+
+        // Low loyalty + random chance = departure
+        if agent.disposition.institutional_loyalty > 0.3 || !self.rng.gen_bool(0.15) {
+            return None;
+        }
+
+        let inst_id = agent.institution_ids[0];
+        let agent_name = agent.display_name();
+        let agent_id = agent.id;
+
+        let inst_name = self.institutions.iter()
+            .find(|i| i.id == inst_id)
+            .map(|i| i.name.clone())
+            .unwrap_or_else(|| "an unnamed body".to_string());
+
+        // Determine if it's a departure or expulsion
+        let expelled = self.rng.gen_bool(0.3);
+        let event_type = if expelled { EventType::MemberExpelled } else { EventType::MemberDeparted };
+
+        // Remove from institution
+        if let Some(inst) = self.institutions.iter_mut().find(|i| i.id == inst_id) {
+            inst.member_ids.retain(|&id| id != agent_id);
+            let verb = if expelled { "expelled" } else { "departed" };
+            inst.chronicle.push(format!("{} {} from the organization", agent_name, verb));
+        }
+
+        self.agents[ai].institution_ids.retain(|&id| id != inst_id);
+        self.agents[ai].current_goal = agent::Goal::Wander;
+
+        let description = prose_gen::generate_institutional_description(
+            &event_type,
+            Some(&agent_name),
+            Some(&inst_name),
+            None,
+            &mut self.rng,
+        );
+
+        Some(Event {
+            tick,
+            event_type,
+            subject_id: Some(agent_id),
+            location: Some((self.agents[ai].x, self.agents[ai].y)),
+            description,
+        })
+    }
+
+    /// Get indices of all living institutions.
+    pub fn living_institution_indices(&self) -> Vec<usize> {
+        self.institutions.iter()
+            .enumerate()
+            .filter(|(_, i)| i.alive)
+            .map(|(idx, _)| idx)
+            .collect()
+    }
+
+    /// Get institution name by ID.
+    pub fn institution_name(&self, id: u64) -> Option<&str> {
+        self.institutions.iter()
+            .find(|i| i.id == id)
+            .map(|i| i.name.as_str())
     }
 
     /// Run the appropriate number of ticks for the current speed setting.

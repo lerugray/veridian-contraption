@@ -107,8 +107,8 @@ fn run_app(
         if let AppMode::Generating { seed, ref mut frames_shown } = mode {
             *frames_shown += 1;
             if *frames_shown >= 3 {
-                let (world, agents) = world_gen::generate_world(seed);
-                sim = Some(SimState::new(world, agents));
+                let (world, agents, institutions) = world_gen::generate_world(seed);
+                sim = Some(SimState::new(world, agents, institutions));
                 mode = AppMode::InGame;
                 continue;
             }
@@ -413,6 +413,7 @@ fn handle_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifiers) 
         Overlay::InspectAgent(_) => { handle_inspect_input(sim, key); InputResult::Continue }
         Overlay::AgentSearch(_, _) => { handle_search_input(sim, key); InputResult::Continue }
         Overlay::AgentList(_) => { handle_agent_list_input(sim, key); InputResult::Continue }
+        Overlay::FactionList(_) => { handle_faction_list_input(sim, key); InputResult::Continue }
         Overlay::ExportMenu => { handle_export_menu_input(sim, key); InputResult::Continue }
         Overlay::ExportInput(_) => { handle_export_input(sim, key); InputResult::Continue }
         Overlay::SaveNameInput(_) => { handle_save_name_input(sim, key); InputResult::Continue }
@@ -457,6 +458,9 @@ fn handle_main_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifi
         KeyCode::PageDown => sim.scroll_log_down(5),
         KeyCode::Char('i') => {
             sim.overlay = Overlay::AgentSearch(String::new(), 0);
+        }
+        KeyCode::Char('f') => {
+            sim.overlay = Overlay::FactionList(0);
         }
         KeyCode::Char('e') => {
             sim.overlay = Overlay::ExportMenu;
@@ -594,6 +598,31 @@ fn handle_quit_confirm_input(sim: &mut SimState, key: KeyCode) -> InputResult {
         _ => {}
     }
     InputResult::Continue
+}
+
+/// Input handling for the faction list overlay (f key).
+fn handle_faction_list_input(sim: &mut SimState, key: KeyCode) {
+    let selected = if let Overlay::FactionList(sel) = sim.overlay {
+        sel
+    } else {
+        return;
+    };
+
+    let living = sim.living_institution_indices();
+    let max_idx = living.len().saturating_sub(1);
+
+    match key {
+        KeyCode::Esc => {
+            sim.overlay = Overlay::None;
+        }
+        KeyCode::Up => {
+            sim.overlay = Overlay::FactionList(selected.saturating_sub(1));
+        }
+        KeyCode::Down => {
+            sim.overlay = Overlay::FactionList((selected + 1).min(max_idx));
+        }
+        _ => {}
+    }
 }
 
 /// Input handling for the export menu.

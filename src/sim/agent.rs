@@ -35,6 +35,12 @@ pub enum Goal {
     SeekSettlement(usize),
     /// Resting in place (counts down ticks).
     Rest(u32),
+    /// Seeking to join an institution (institution id).
+    JoinInstitution(u64),
+    /// Advancing within current institution (institution id).
+    AdvanceInInstitution(u64),
+    /// Founding a new institution (only high-ambition agents).
+    FoundInstitution,
 }
 
 /// An action result returned from Agent::act() to be turned into events by the sim.
@@ -66,6 +72,9 @@ pub struct Agent {
     /// Tick when the last epithet was gained (prevents rapid accumulation).
     #[serde(default)]
     pub last_epithet_tick: u64,
+    /// Institution IDs this agent belongs to (0-2).
+    #[serde(default)]
+    pub institution_ids: Vec<u64>,
 }
 
 impl Agent {
@@ -149,6 +158,12 @@ impl Agent {
                     self.current_goal = Goal::Rest(remaining - 1);
                 }
             }
+            // Institutional goals resolve in the sim tick loop, not here.
+            // Agent wanders while pursuing them.
+            Goal::JoinInstitution(_) | Goal::AdvanceInInstitution(_) | Goal::FoundInstitution => {
+                self.wander(rng, terrain);
+                // These goals persist for a while; the sim tick handles resolution.
+            }
         }
 
         actions
@@ -185,8 +200,27 @@ impl Agent {
     }
 
     /// Possibly switch to a new goal based on disposition weights.
-    fn maybe_change_goal(&mut self, rng: &mut StdRng, settlements: &[(u32, u32)]) {
+    pub fn maybe_change_goal(&mut self, rng: &mut StdRng, settlements: &[(u32, u32)]) {
         let roll: f32 = rng.gen();
+
+        // High-ambition agents with no institution may try to found one
+        if self.institution_ids.is_empty()
+            && self.disposition.ambition > 0.8
+            && roll < 0.05
+        {
+            self.current_goal = Goal::FoundInstitution;
+            return;
+        }
+
+        // Agents with high institutional loyalty may advance in their institution
+        if !self.institution_ids.is_empty()
+            && self.disposition.institutional_loyalty > 0.5
+            && roll < self.disposition.institutional_loyalty * 0.15
+        {
+            let inst_id = self.institution_ids[rng.gen_range(0..self.institution_ids.len())];
+            self.current_goal = Goal::AdvanceInInstitution(inst_id);
+            return;
+        }
 
         if roll < self.disposition.ambition * 0.3 && !settlements.is_empty() {
             let idx = rng.gen_range(0..settlements.len());

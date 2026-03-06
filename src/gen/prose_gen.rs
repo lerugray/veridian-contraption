@@ -151,6 +151,120 @@ pub fn generate_description(
             let c = circumstances[rng.gen_range(0..circumstances.len())];
             format!("{} entered the records of {} {}.", name, loc, c)
         }
+
+        // Institutional events use generate_institutional_description instead
+        EventType::InstitutionFounded
+        | EventType::InstitutionDissolved
+        | EventType::SchismOccurred
+        | EventType::DoctrineShifted
+        | EventType::AllianceFormed
+        | EventType::AllianceStrained
+        | EventType::RivalryDeclared
+        | EventType::MemberJoined
+        | EventType::MemberDeparted
+        | EventType::MemberExpelled => {
+            format!("An institutional event occurred near {}.", loc)
+        }
+    }
+}
+
+/// Generate prose for institutional events.
+/// `agent_name` is the agent involved (if any).
+/// `inst_name` is the primary institution.
+/// `other_name` is a second institution or location name (context-dependent).
+pub fn generate_institutional_description(
+    event_type: &EventType,
+    agent_name: Option<&str>,
+    inst_name: Option<&str>,
+    other_name: Option<&str>,
+    rng: &mut StdRng,
+) -> String {
+    let inst = inst_name.unwrap_or("an unnamed body");
+    let agent = agent_name.unwrap_or("a party of uncertain identity");
+    let other = other_name.unwrap_or("another organization");
+
+    match event_type {
+        EventType::InstitutionFounded => {
+            let phrases = [
+                format!("{} has been formally established near {}, by the initiative of {}. Its charter has been filed.", inst, other, agent),
+                format!("A new organization, {}, was founded by {} in the vicinity of {}. The relevant authorities have been notified.", inst, agent, other),
+                format!("{} brought {} into existence near {}. The necessary paperwork was completed with unusual efficiency.", agent, inst, other),
+            ];
+            phrases[rng.gen_range(0..phrases.len())].clone()
+        }
+        EventType::InstitutionDissolved => {
+            let phrases = [
+                format!("{} has ceased to function as a going concern. Its records have been transferred to the Archive of Defunct Bodies.", inst),
+                format!("The dissolution of {} was recorded without ceremony. Its remaining assets, if any, were not enumerated.", inst),
+                format!("{} was formally dissolved. The reasons given were 'insufficient membership and declining relevance.'", inst),
+            ];
+            phrases[rng.gen_range(0..phrases.len())].clone()
+        }
+        EventType::SchismOccurred => {
+            let phrases = [
+                format!("A doctrinal rupture within {} has produced irreconcilable factions.", inst),
+                format!("{} suffered a schism of considerable administrative consequence.", inst),
+                format!("Internal disagreements within {} escalated beyond the capacity of its mediation procedures.", inst),
+            ];
+            phrases[rng.gen_range(0..phrases.len())].clone()
+        }
+        EventType::DoctrineShifted => {
+            let phrases = [
+                format!("{} has officially revised one of its foundational positions. The previous position was stricken from the record.", inst),
+                format!("A doctrinal adjustment within {} was announced without explanation.", inst),
+                format!("{} quietly amended its official doctrine. Members were instructed to update their personal copies.", inst),
+            ];
+            phrases[rng.gen_range(0..phrases.len())].clone()
+        }
+        EventType::AllianceFormed => {
+            let phrases = [
+                format!("{} and {} have entered into a formal arrangement of mutual benefit.", inst, other),
+                format!("An alliance between {} and {} was ratified with the appropriate signatures.", inst, other),
+                format!("{} extended a hand of cooperation to {}. The hand was accepted, provisionally.", inst, other),
+            ];
+            phrases[rng.gen_range(0..phrases.len())].clone()
+        }
+        EventType::AllianceStrained => {
+            let phrases = [
+                format!("Relations between {} and {} have deteriorated over a matter that both parties describe differently.", inst, other),
+                format!("{} filed a formal complaint against {}. The complaint was acknowledged but not addressed.", inst, other),
+                format!("Tensions between {} and {} reached a level that required the appointment of a mediator. No mediator was appointed.", inst, other),
+            ];
+            phrases[rng.gen_range(0..phrases.len())].clone()
+        }
+        EventType::RivalryDeclared => {
+            let phrases = [
+                format!("{} has declared {} to be operating in opposition to its interests.", inst, other),
+                format!("A state of formal rivalry now exists between {} and {}.", inst, other),
+                format!("{} publicly denounced {} in terms that left little room for diplomatic interpretation.", inst, other),
+            ];
+            phrases[rng.gen_range(0..phrases.len())].clone()
+        }
+        EventType::MemberJoined => {
+            let phrases = [
+                format!("{} was admitted to the ranks of {}. The initiation paperwork was filed.", agent, inst),
+                format!("{} formally joined {}. Their provisional membership period begins immediately.", agent, inst),
+                format!("{} accepted {} as a member, following a review process described as 'perfunctory.'", inst, agent),
+            ];
+            phrases[rng.gen_range(0..phrases.len())].clone()
+        }
+        EventType::MemberDeparted => {
+            let phrases = [
+                format!("{} departed from {}, citing reasons that were not entered into the record.", agent, inst),
+                format!("{} terminated their affiliation with {}. The exit interview was declined.", agent, inst),
+                format!("{} quietly removed itself from the membership rolls of {}.", agent, inst),
+            ];
+            phrases[rng.gen_range(0..phrases.len())].clone()
+        }
+        EventType::MemberExpelled => {
+            let phrases = [
+                format!("{} was expelled from {} on grounds that the internal tribunal declined to make public.", agent, inst),
+                format!("{} formally removed {} from its membership for reasons described as 'procedural.'", inst, agent),
+                format!("{} was ejected from {}. The expulsion notice cited seventeen infractions, only three of which were specified.", agent, inst),
+            ];
+            phrases[rng.gen_range(0..phrases.len())].clone()
+        }
+        _ => format!("An institutional matter involving {} was resolved, or at least filed.", inst),
     }
 }
 

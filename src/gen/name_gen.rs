@@ -5,6 +5,7 @@ use rand::Rng;
 use serde::Deserialize;
 
 use crate::sim::event::EventType;
+use crate::sim::institution::InstitutionKind;
 
 /// A phoneme set defining the sound palette for a cultural group.
 #[derive(Debug, Clone, Deserialize)]
@@ -17,17 +18,6 @@ pub struct PhonemeSet {
     pub settlement_suffixes: Vec<String>,
     #[serde(default)]
     pub compound: bool,
-}
-
-/// Types of institutions (placeholder for Phase 2 — will move to sim/institution.rs).
-#[derive(Debug, Clone)]
-pub enum InstitutionKind {
-    Guild,
-    Government,
-    Religious,
-    Military,
-    Regulatory,
-    Secret,
 }
 
 /// Load phoneme data from the embedded JSON file.
@@ -168,19 +158,19 @@ pub fn generate_institution_name(
             &["The Bureau of", "The Office of", "The Ministry of", "The Department of"],
             rng,
         ),
-        InstitutionKind::Religious => pick(
+        InstitutionKind::Cult => pick(
             &["The Order of the", "The Congregation of", "The Synod of", "The Temple of the"],
             rng,
         ),
-        InstitutionKind::Military => pick(
+        InstitutionKind::MercenaryCompany => pick(
             &["The Company of the", "The Legion of", "The Guard of", "The Defenders of"],
             rng,
         ),
-        InstitutionKind::Regulatory => pick(
+        InstitutionKind::RegulatoryBody => pick(
             &["The Commission of", "The Board of", "The Registry of", "The Bureau of"],
             rng,
         ),
-        InstitutionKind::Secret => pick(
+        InstitutionKind::SecretSociety => pick(
             &["The Lodge of the", "The Fellowship of the", "The Circle of", "The Hidden"],
             rng,
         ),
@@ -212,6 +202,132 @@ pub fn generate_institution_name(
         1 => format!("{} {} {} of {}", prefix, adj, noun, cultural_word),
         _ => format!("{} {}", prefix, cultural_word),
     }
+}
+
+/// Generate a charter (stated purpose) for an institution.
+pub fn generate_charter(kind: &InstitutionKind, rng: &mut StdRng) -> String {
+    match kind {
+        InstitutionKind::Guild => pick(&[
+            "The regulation and advancement of a particular trade",
+            "The mutual protection of its members' commercial interests",
+            "The standardization of weights, measures, and contractual obligations",
+            "The preservation of craft secrets and the training of apprentices",
+        ], rng).to_string(),
+        InstitutionKind::Government => pick(&[
+            "The orderly administration of territorial affairs",
+            "The collection of revenues and the enforcement of civic obligations",
+            "The maintenance of public order and the resolution of disputes",
+            "The provisional governance of contested or recently acquired territories",
+        ], rng).to_string(),
+        InstitutionKind::Cult => pick(&[
+            "The veneration of a principle that defies conventional categorization",
+            "The interpretation and dissemination of received cosmological truths",
+            "The preparation for an event that has been anticipated for some time",
+            "The maintenance of ritual obligations whose origin is no longer documented",
+        ], rng).to_string(),
+        InstitutionKind::MercenaryCompany => pick(&[
+            "The provision of armed services to those who can afford them",
+            "The defense of interests that the regular authorities decline to protect",
+            "The enforcement of debts and the recovery of disputed property",
+            "The conduct of military operations on a contractual basis",
+        ], rng).to_string(),
+        InstitutionKind::RegulatoryBody => pick(&[
+            "The oversight and certification of activities deemed consequential",
+            "The enforcement of standards that were established under unclear authority",
+            "The licensing of practices that require formal permission to perform",
+            "The investigation of irregularities in administrative proceedings",
+        ], rng).to_string(),
+        InstitutionKind::SecretSociety => pick(&[
+            "Purposes that are disclosed only to members of sufficient standing",
+            "The advancement of an agenda that public institutions have declined to pursue",
+            "The preservation of knowledge that has been officially suppressed",
+            "Activities that are best conducted without general awareness",
+        ], rng).to_string(),
+    }
+}
+
+/// Generate an "actual function" that may diverge from the charter.
+pub fn generate_actual_function(kind: &InstitutionKind, rng: &mut StdRng) -> String {
+    let diverged = rng.gen_bool(0.4); // 40% chance the actual function differs
+    if !diverged {
+        return generate_charter(kind, rng);
+    }
+    pick(&[
+        "Primarily concerned with suppressing a rival organization",
+        "Mostly occupied with internal procedural disputes",
+        "Functioning as a social club for its senior members",
+        "Engaged in the accumulation of administrative influence",
+        "Dedicated to perpetuating its own existence",
+        "Operating as an informal intelligence network",
+        "Focused on controlling access to a particular resource",
+        "Serving as a vehicle for the ambitions of its leadership",
+    ], rng).to_string()
+}
+
+/// Generate 2-4 doctrinal positions for an institution.
+pub fn generate_doctrines(kind: &InstitutionKind, rng: &mut StdRng) -> Vec<String> {
+    let count = rng.gen_range(2..=4);
+    let pool: &[&str] = match kind {
+        InstitutionKind::Guild => &[
+            "Quality must be maintained at the expense of efficiency",
+            "Members shall not undercut one another's prices",
+            "Trade secrets are held in common trust",
+            "Apprenticeship is the only legitimate path to mastery",
+            "External competition is to be resisted by all available means",
+            "Innovation is acceptable only when properly documented",
+        ],
+        InstitutionKind::Government => &[
+            "Authority derives from documented precedent",
+            "Taxation is a natural consequence of territorial habitation",
+            "Disputes are resolved through established procedure, not force",
+            "Census records are sacred and inviolable",
+            "All territorial claims require proper documentation",
+            "Administrative positions shall be filled by appointment, not election",
+        ],
+        InstitutionKind::Cult => &[
+            "The fundamental nature of reality is other than it appears",
+            "Certain obligations transcend the authority of temporal institutions",
+            "Revelation is ongoing and may contradict earlier revelation",
+            "The uninitiated are not qualified to assess doctrinal matters",
+            "Ritual observance is non-negotiable",
+            "The anticipated event approaches on a schedule known only to the worthy",
+        ],
+        InstitutionKind::MercenaryCompany => &[
+            "A contract, once accepted, is fulfilled regardless of circumstance",
+            "Payment is required in advance of services rendered",
+            "The company does not take sides in disputes; it takes fees",
+            "Loyalty to the company supersedes all other obligations",
+            "Retreat is a tactical option, not a moral failing",
+            "Former enemies are potential future clients",
+        ],
+        InstitutionKind::RegulatoryBody => &[
+            "All activities within our jurisdiction require formal approval",
+            "Compliance is not optional",
+            "Ambiguity in the regulations shall be resolved in favor of oversight",
+            "Appeals are permitted but rarely successful",
+            "Our authority is derived from necessity, not popularity",
+            "Inspection schedules are confidential for operational reasons",
+        ],
+        InstitutionKind::SecretSociety => &[
+            "What is known to us is not to be shared with outsiders",
+            "Membership is by invitation only",
+            "The true purpose of the organization is revealed in stages",
+            "Public institutions serve a function but lack essential knowledge",
+            "Discretion is the highest virtue",
+            "The symbols are not merely decorative",
+        ],
+    };
+
+    let mut doctrines = Vec::new();
+    let mut used = vec![false; pool.len()];
+    while doctrines.len() < count && doctrines.len() < pool.len() {
+        let idx = rng.gen_range(0..pool.len());
+        if !used[idx] {
+            used[idx] = true;
+            doctrines.push(pool[idx].to_string());
+        }
+    }
+    doctrines
 }
 
 // ---------------------------------------------------------------------------
@@ -263,6 +379,38 @@ pub fn generate_epithet(
                 1 => "the Formerly Living".to_string(),
                 2 => "Whose File Was Closed".to_string(),
                 _ => "the Concluded".to_string(),
+            }
+        }
+        EventType::InstitutionFounded => {
+            match rng.gen_range(0..4) {
+                0 => "the Founder".to_string(),
+                1 => "the Charter-Bearer".to_string(),
+                2 => "Who Established the Precedent".to_string(),
+                _ => "the Incorporator".to_string(),
+            }
+        }
+        EventType::MemberJoined => {
+            match rng.gen_range(0..4) {
+                0 => "the Newly Affiliated".to_string(),
+                1 => "the Initiated".to_string(),
+                2 => "the Enrolled".to_string(),
+                _ => "of Recent Membership".to_string(),
+            }
+        }
+        EventType::MemberExpelled => {
+            match rng.gen_range(0..4) {
+                0 => "the Expelled".to_string(),
+                1 => "the Defenestrated".to_string(),
+                2 => "Whose Membership Was Revoked".to_string(),
+                _ => "the Formerly Affiliated".to_string(),
+            }
+        }
+        EventType::MemberDeparted => {
+            match rng.gen_range(0..4) {
+                0 => "the Disaffiliated".to_string(),
+                1 => "Who Resigned".to_string(),
+                2 => "the Voluntarily Departed".to_string(),
+                _ => "of No Current Affiliation".to_string(),
             }
         }
         _ => {
