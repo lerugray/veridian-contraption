@@ -82,6 +82,9 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
         Overlay::FollowInstitutionPick(selected) => {
             overlays::draw_follow_institution_pick(frame, sim, *selected);
         }
+        Overlay::Help => {
+            overlays::draw_help(frame);
+        }
         Overlay::ExportMenu => {
             overlays::draw_export_menu(frame);
         }
@@ -396,7 +399,7 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
         .as_deref()
         .unwrap_or("unsaved");
     let status_text = format!(
-        " {}  |  Tick {}  |  {}  |  Pop: {}  |  [{}]  |  SPACE .=step 1/5/2=spd Tab=agents i=find f=follow F=factions e=export ^S=save q=menu",
+        " {}  |  Tick {}  |  {}  |  Pop: {}  |  [{}]  |  ?=help",
         sim.world.name, sim.world.tick, sim.speed.label(), alive_count, save_label,
     );
     let status = Paragraph::new(status_text)

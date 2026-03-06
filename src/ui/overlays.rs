@@ -543,6 +543,52 @@ pub fn draw_follow_institution_pick(frame: &mut Frame, sim: &SimState, selected:
     frame.render_widget(widget, area);
 }
 
+/// Draw the help overlay showing all keybindings.
+pub fn draw_help(frame: &mut Frame) {
+    let area = centered_rect(55, 75, frame.area());
+    frame.render_widget(Clear, area);
+
+    let key_style = Style::default().fg(Color::Yellow);
+    let desc_style = Style::default().fg(Color::Gray);
+    let header_style = Style::default().fg(Color::White);
+
+    let lines: Vec<Line> = vec![
+        Line::from(Span::styled(" KEYBINDINGS", header_style)),
+        Line::from(""),
+        Line::from(Span::styled(" SIMULATION", header_style)),
+        Line::from(vec![Span::styled("   SPACE    ", key_style), Span::styled("Pause / unpause", desc_style)]),
+        Line::from(vec![Span::styled("   .        ", key_style), Span::styled("Step one tick (while paused)", desc_style)]),
+        Line::from(vec![Span::styled("   1        ", key_style), Span::styled("Speed 1x", desc_style)]),
+        Line::from(vec![Span::styled("   5        ", key_style), Span::styled("Speed 5x", desc_style)]),
+        Line::from(vec![Span::styled("   2        ", key_style), Span::styled("Speed 20x", desc_style)]),
+        Line::from(""),
+        Line::from(Span::styled(" NAVIGATION", header_style)),
+        Line::from(vec![Span::styled("   i        ", key_style), Span::styled("Find agent by name", desc_style)]),
+        Line::from(vec![Span::styled("   Tab      ", key_style), Span::styled("Browse agent list", desc_style)]),
+        Line::from(vec![Span::styled("   f        ", key_style), Span::styled("Follow agent or institution", desc_style)]),
+        Line::from(vec![Span::styled("   F        ", key_style), Span::styled("View faction list", desc_style)]),
+        Line::from(vec![Span::styled("   PgUp/Dn  ", key_style), Span::styled("Scroll log", desc_style)]),
+        Line::from(""),
+        Line::from(Span::styled(" EXPORT & SAVE", header_style)),
+        Line::from(vec![Span::styled("   e        ", key_style), Span::styled("Export menu (log, factions, chronicles)", desc_style)]),
+        Line::from(vec![Span::styled("   Ctrl+S   ", key_style), Span::styled("Save world", desc_style)]),
+        Line::from(""),
+        Line::from(Span::styled(" OTHER", header_style)),
+        Line::from(vec![Span::styled("   q        ", key_style), Span::styled("Return to main menu", desc_style)]),
+        Line::from(vec![Span::styled("   ?        ", key_style), Span::styled("This help screen", desc_style)]),
+        Line::from(""),
+        Line::from(Span::styled(" ESC to close", Style::default().fg(Color::DarkGray))),
+    ];
+
+    let block = Block::default()
+        .title(" HELP ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::White));
+
+    let widget = Paragraph::new(lines).block(block);
+    frame.render_widget(widget, area);
+}
+
 /// Draw the export menu overlay.
 pub fn draw_export_menu(frame: &mut Frame) {
     let area = centered_rect(40, 20, frame.area());

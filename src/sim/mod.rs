@@ -77,6 +77,8 @@ pub enum Overlay {
     FollowAgentPick(usize),
     /// Follow institution picker: browsable institution list. (selected index)
     FollowInstitutionPick(usize),
+    /// Help screen showing all keybindings.
+    Help,
     /// Quit confirm: return to main menu? (selected option: 0=save&return, 1=return, 2=cancel)
     QuitConfirm(usize),
 }

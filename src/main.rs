@@ -414,6 +414,7 @@ fn handle_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifiers) 
         Overlay::AgentSearch(_, _) => { handle_search_input(sim, key); InputResult::Continue }
         Overlay::AgentList(_) => { handle_agent_list_input(sim, key); InputResult::Continue }
         Overlay::FactionList(_) => { handle_faction_list_input(sim, key); InputResult::Continue }
+        Overlay::Help => { if matches!(key, KeyCode::Esc | KeyCode::Char('?')) { sim.overlay = Overlay::None; } InputResult::Continue }
         Overlay::FollowSelect(_) => { handle_follow_select_input(sim, key); InputResult::Continue }
         Overlay::FollowAgentPick(_) => { handle_follow_agent_pick_input(sim, key); InputResult::Continue }
         Overlay::FollowInstitutionPick(_) => { handle_follow_institution_pick_input(sim, key); InputResult::Continue }
@@ -476,6 +477,9 @@ fn handle_main_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifi
         }
         KeyCode::Char('e') => {
             sim.overlay = Overlay::ExportMenu;
+        }
+        KeyCode::Char('?') => {
+            sim.overlay = Overlay::Help;
         }
         _ => {}
     }
