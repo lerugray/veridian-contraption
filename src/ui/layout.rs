@@ -115,6 +115,9 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
         Overlay::QuitConfirm(selected) => {
             overlays::draw_quit_confirm(frame, *selected);
         }
+        Overlay::EschatonConfirm(selected) => {
+            overlays::draw_eschaton_confirm(frame, sim, *selected);
+        }
     }
 }
 
@@ -504,6 +507,15 @@ fn draw_site_panel(frame: &mut Frame, area: Rect, sim: &SimState, site_idx: usiz
 }
 
 fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
+    // Eschaton flash takes priority over everything
+    if sim.eschaton_flash > 0 {
+        let flash_color = if sim.eschaton_flash % 10 < 5 { Color::LightRed } else { Color::Yellow };
+        let status = Paragraph::new(" ▓▓▓  THE ESCHATON HAS OCCURRED  ▓▓▓")
+            .style(Style::default().fg(flash_color).bg(Color::Black));
+        frame.render_widget(status, area);
+        return;
+    }
+
     // If there's a temporary status message, show it instead of the default bar
     if let Some((ref msg, _)) = sim.status_message {
         let status = Paragraph::new(format!(" {}", msg))

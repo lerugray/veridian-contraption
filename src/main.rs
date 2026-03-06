@@ -551,6 +551,7 @@ fn handle_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifiers) 
         Overlay::ExportInput(_) => { handle_export_input(sim, key); InputResult::Continue }
         Overlay::SaveNameInput(_) => { handle_save_name_input(sim, key); InputResult::Continue }
         Overlay::QuitConfirm(_) => handle_quit_confirm_input(sim, key),
+        Overlay::EschatonConfirm(_) => { handle_eschaton_confirm_input(sim, key); InputResult::Continue }
     }
 }
 
@@ -641,6 +642,10 @@ fn handle_main_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifi
             if !sim.sites.is_empty() {
                 sim.overlay = Overlay::SiteList(0);
             }
+        }
+        KeyCode::Char('E') => {
+            // Immanentize the Eschaton — open confirmation screen
+            sim.overlay = Overlay::EschatonConfirm(1); // default to Cancel
         }
         _ => {}
     }
@@ -1014,6 +1019,37 @@ fn handle_export_input(sim: &mut SimState, key: KeyCode) {
             let mut s = input;
             s.push(c);
             sim.overlay = Overlay::ExportInput(s);
+        }
+        _ => {}
+    }
+}
+
+/// Input handling for the Eschaton confirmation overlay (Shift+E).
+fn handle_eschaton_confirm_input(sim: &mut SimState, key: KeyCode) {
+    let selected = if let Overlay::EschatonConfirm(sel) = sim.overlay { sel } else { return; };
+    match key {
+        KeyCode::Esc => { sim.overlay = Overlay::None; }
+        KeyCode::Left => { sim.overlay = Overlay::EschatonConfirm(selected.saturating_sub(1)); }
+        KeyCode::Right => { sim.overlay = Overlay::EschatonConfirm((selected + 1).min(1)); }
+        KeyCode::Enter => {
+            match selected {
+                0 => {
+                    // Confirm — Immanentize the Eschaton
+                    if sim.can_eschaton() {
+                        let tick = sim.world.tick;
+                        let eschaton_events = sim.execute_eschaton(tick);
+                        sim.events.extend(eschaton_events);
+                    } else {
+                        sim.set_status_message("The Eschaton is still in cooldown. The world requires more time.".to_string());
+                    }
+                    sim.overlay = Overlay::None;
+                }
+                1 => {
+                    // Cancel
+                    sim.overlay = Overlay::None;
+                }
+                _ => {}
+            }
         }
         _ => {}
     }

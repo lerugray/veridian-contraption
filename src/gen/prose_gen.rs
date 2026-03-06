@@ -393,6 +393,8 @@ pub fn generate_description(
         | EventType::RivalryDeclared | EventType::MemberJoined
         | EventType::MemberDeparted | EventType::MemberExpelled =>
             format!("An institutional event occurred near {}.", loc),
+        EventType::EschatonFired =>
+            "The world has been fundamentally reorganized.".to_string(),
     }
 }
 

@@ -100,7 +100,7 @@ prose, and runs continuously whether the player interacts or not.
 
 ```
 CURRENT PHASE: Phase 5 IN PROGRESS
-LAST COMPLETED PROMPT: 5-A — Prose Expansion
+LAST COMPLETED PROMPT: Eschaton System (between 5-A and 5-B)
 STATUS: Working
 NEXT TASK: Phase 5-B — Color/symbol tuning, full export system
 ```
@@ -211,18 +211,20 @@ SPACE = pause/unpause | . = step | 1/5/2 = speed | q = quit
 - w = world parameters
 - l = map legend
 - ? = help
-- ESC = immanentize the eschaton menu (hold, confirm)
+- Shift+E = immanentize the eschaton (confirmation screen, left/right to navigate)
 - Ctrl+S = save
 
 ### Immanentize the Eschaton
-- Triggered by: player via ESC menu (with confirmation), OR autonomously when
-  cosmological_density is high and accumulated tension threshold is crossed
+- Triggered by: player via Shift+E (with confirmation), OR autonomously when
+  cosmological_density > 0.65, tension > 0.7, and random check passes
+- 500-tick cooldown between eschatons
 - Effect: fires an EschatonEvent that permanently alters world parameters,
   geography, institutions, and/or population — but never ends the simulation
-- Eschaton types include: The Reckoning of Debts, The Taxonomic Correction,
+- Eschaton types: The Reckoning of Debts, The Taxonomic Correction,
   The Administrative Singularity, The Geological Argument, The Doctrinal Cascade,
   The Arrival of Something Owed
-- After an eschaton: world parameters shift, a new era begins, the Annals records it
+- After an eschaton: world parameters shift, tension resets, cosmological_density
+  drops, a new era begins, the Annals records it, status bar flashes
 
 ### Save System
 - Ctrl+S: manual save (prompts for name)

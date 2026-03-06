@@ -8,6 +8,7 @@ use ratatui::{
 
 use crate::sim::SimState;
 use crate::sim::agent::Goal;
+use crate::sim::eschaton::{ESCHATON_COOLDOWN, TENSION_THRESHOLD, COSMO_THRESHOLD};
 use crate::gen::prose_gen;
 
 /// Draw the agent inspect overlay as a centered box over the main layout.
@@ -745,6 +746,7 @@ pub fn draw_help(frame: &mut Frame) {
         Line::from(vec![Span::styled("  Ctrl+Sh+S ", key_style), Span::styled("Save As (always prompts for name)", desc_style)]),
         Line::from(""),
         Line::from(Span::styled(" OTHER", header_style)),
+        Line::from(vec![Span::styled("   Shift+E  ", key_style), Span::styled("Immanentize the Eschaton (with confirm)", desc_style)]),
         Line::from(vec![Span::styled("   q        ", key_style), Span::styled("Return to main menu", desc_style)]),
         Line::from(vec![Span::styled("   ?        ", key_style), Span::styled("This help screen", desc_style)]),
         Line::from(""),
@@ -1225,6 +1227,48 @@ fn build_world_report_lines(sim: &SimState) -> Vec<Line<'static>> {
         lines.push(Line::from(""));
     }
 
+    // Eschaton status
+    lines.push(Line::from(Span::styled(
+        "  ESCHATON STATUS",
+        header_style,
+    )));
+    lines.push(Line::from(Span::styled(
+        "  ─────────────────────────────────────────",
+        dim_style,
+    )));
+    let eschaton_count = sim.eschaton_history.len();
+    if eschaton_count == 0 {
+        lines.push(Line::from(vec![
+            Span::styled("  Eschatons recorded:    ", label_style),
+            Span::styled("None", value_style),
+        ]));
+        lines.push(Line::from(Span::styled(
+            "  (The world has not yet been fundamentally reorganized.)",
+            dim_style,
+        )));
+    } else {
+        lines.push(Line::from(vec![
+            Span::styled("  Eschatons recorded:    ", label_style),
+            Span::styled(format!("{}", eschaton_count), Style::default().fg(Color::LightRed)),
+        ]));
+        for record in &sim.eschaton_history {
+            lines.push(Line::from(vec![
+                Span::styled("    Tick ", label_style),
+                Span::styled(format!("{}: ", record.tick), value_style),
+                Span::styled(record.eschaton_type.label().to_string(), Style::default().fg(Color::LightRed)),
+            ]));
+        }
+    }
+    let tension = sim.tension;
+    lines.push(Line::from(vec![
+        Span::styled("  Current tension:       ", label_style),
+        Span::styled(
+            format!("{:.0}%", tension * 100.0),
+            if tension > 0.7 { Style::default().fg(Color::LightRed) } else { value_style },
+        ),
+    ]));
+    lines.push(Line::from(""));
+
     // Closing flourish
     lines.push(Line::from(Span::styled(
         "═══════════════════════════════════════════════════════════════",
@@ -1292,6 +1336,152 @@ pub fn draw_world_report_fullscreen(frame: &mut Frame, sim: &SimState, scroll: u
         Style::default().fg(Color::DarkGray),
     ));
     frame.render_widget(footer, chunks[1]);
+}
+
+/// Draw the Eschaton confirmation overlay — ominous, warns of consequences.
+pub fn draw_eschaton_confirm(frame: &mut Frame, sim: &SimState, selected: usize) {
+    let area = centered_rect(65, 70, frame.area());
+    frame.render_widget(Clear, area);
+
+    let warn_style = Style::default().fg(Color::LightRed);
+    let dim_style = Style::default().fg(Color::DarkGray);
+    let label_style = Style::default().fg(Color::Gray);
+    let value_style = Style::default().fg(Color::White);
+    let ominous_style = Style::default().fg(Color::Yellow);
+
+    let tension = sim.tension;
+    let cosmo = sim.world.params.cosmological_density;
+    let can_fire = sim.can_eschaton();
+    let eschaton_count = sim.eschaton_history.len();
+
+    let tension_bar = format!(
+        "[{}{}] {:.0}%",
+        "#".repeat((tension * 10.0).round() as usize),
+        ".".repeat(10 - (tension * 10.0).round().min(10.0) as usize),
+        tension * 100.0
+    );
+    let cosmo_bar = format!(
+        "[{}{}] {:.0}%",
+        "#".repeat((cosmo * 10.0).round() as usize),
+        ".".repeat(10 - (cosmo * 10.0).round().min(10.0) as usize),
+        cosmo * 100.0
+    );
+
+    let mut lines: Vec<Line> = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "  ╔═══════════════════════════════════════════════════════╗",
+            warn_style,
+        )),
+        Line::from(Span::styled(
+            "  ║     IMMANENTIZE THE ESCHATON                        ║",
+            warn_style,
+        )),
+        Line::from(Span::styled(
+            "  ╚═══════════════════════════════════════════════════════╝",
+            warn_style,
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  You are about to bring about the end of the current order.",
+            ominous_style,
+        )),
+        Line::from(Span::styled(
+            "  The consequences are permanent and unpredictable.",
+            ominous_style,
+        )),
+        Line::from(Span::styled(
+            "  The world will not end. It will be changed.",
+            ominous_style,
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  ─────────────────────────────────────────────────────",
+            dim_style,
+        )),
+        Line::from(vec![
+            Span::styled("  World Tension:          ", label_style),
+            Span::styled(tension_bar, if tension > TENSION_THRESHOLD { warn_style } else { value_style }),
+        ]),
+        Line::from(vec![
+            Span::styled("  Cosmological Density:   ", label_style),
+            Span::styled(cosmo_bar, if cosmo > COSMO_THRESHOLD { warn_style } else { value_style }),
+        ]),
+        Line::from(vec![
+            Span::styled("  Previous Eschatons:     ", label_style),
+            Span::styled(format!("{}", eschaton_count), value_style),
+        ]),
+    ];
+
+    if !can_fire {
+        let ticks_remaining = ESCHATON_COOLDOWN.saturating_sub(sim.world.tick - sim.last_eschaton_tick);
+        lines.push(Line::from(vec![
+            Span::styled("  Cooldown:               ", label_style),
+            Span::styled(format!("{} ticks remaining", ticks_remaining), Style::default().fg(Color::Red)),
+        ]));
+    }
+
+    lines.push(Line::from(Span::styled(
+        "  ─────────────────────────────────────────────────────",
+        dim_style,
+    )));
+    lines.push(Line::from(""));
+
+    if !can_fire {
+        lines.push(Line::from(Span::styled(
+            "  The Eschaton is not yet available. The world requires more time.",
+            Style::default().fg(Color::Red),
+        )));
+        lines.push(Line::from(""));
+    }
+
+    // Selection options
+    let confirm_style = if selected == 0 {
+        Style::default().fg(Color::Black).bg(Color::LightRed)
+    } else {
+        if can_fire { warn_style } else { Style::default().fg(Color::DarkGray) }
+    };
+    let cancel_style = if selected == 1 {
+        Style::default().fg(Color::Black).bg(Color::White)
+    } else {
+        value_style
+    };
+
+    lines.push(Line::from(vec![
+        Span::styled("     ", label_style),
+        Span::styled("  IMMANENTIZE  ", confirm_style),
+        Span::styled("     ", label_style),
+        Span::styled("  CANCEL  ", cancel_style),
+    ]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  There is no confirmation after this. There is no undo.",
+        dim_style,
+    )));
+
+    // Show eschaton history if any
+    if !sim.eschaton_history.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  PREVIOUS ESCHATONS",
+            Style::default().fg(Color::Yellow),
+        )));
+        for record in &sim.eschaton_history {
+            lines.push(Line::from(vec![
+                Span::styled("    Tick ", label_style),
+                Span::styled(format!("{}: ", record.tick), value_style),
+                Span::styled(record.eschaton_type.label().to_string(), warn_style),
+            ]));
+        }
+    }
+
+    let block = Block::default()
+        .title(" ESCHATON ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::LightRed));
+
+    let widget = Paragraph::new(lines).block(block);
+    frame.render_widget(widget, area);
 }
 
 /// Simple text bar visualization for a 0.0-1.0 value.

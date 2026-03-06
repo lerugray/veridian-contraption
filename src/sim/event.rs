@@ -32,6 +32,8 @@ pub enum EventType {
     ArtifactAcquired,
     ArtifactDelivered,
     AdventurerDiedInSite,
+    // Eschaton events
+    EschatonFired,
 }
 
 impl EventType {
@@ -76,6 +78,9 @@ impl EventType {
             // Cosmological / world-level — magenta
             EventType::WorldGenesis
             | EventType::CensusReport => Color::Magenta,
+
+            // Eschaton — bright red, unmissable
+            EventType::EschatonFired => Color::LightRed,
         }
     }
 }

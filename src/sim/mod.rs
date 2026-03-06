@@ -4,6 +4,7 @@ pub mod event;
 pub mod institution;
 pub mod site;
 pub mod artifact;
+pub mod eschaton;
 
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -11,6 +12,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::gen::name_gen;
 use crate::gen::prose_gen;
+use crate::gen::eschaton_gen;
+use crate::sim::eschaton::{EschatonType, EschatonRecord, ESCHATON_COOLDOWN, TENSION_THRESHOLD, COSMO_THRESHOLD};
 use crate::sim::agent::Agent;
 use crate::sim::artifact::Artifact;
 use crate::sim::event::{Event, EventType};
@@ -108,6 +111,8 @@ pub enum Overlay {
     Annals(usize),
     /// Quit confirm: return to main menu? (selected option: 0=save&return, 1=return, 2=cancel)
     QuitConfirm(usize),
+    /// Eschaton confirmation screen. (selected option: 0=confirm, 1=cancel)
+    EschatonConfirm(usize),
 }
 
 /// Serializable snapshot of the simulation state for save/load.
@@ -140,6 +145,15 @@ pub struct SaveData {
     /// Major event count accumulated in the current era.
     #[serde(default)]
     pub era_major_events: u32,
+    /// History of past Eschaton events.
+    #[serde(default)]
+    pub eschaton_history: Vec<EschatonRecord>,
+    /// Accumulated world tension (drives autonomous Eschaton trigger).
+    #[serde(default)]
+    pub tension: f32,
+    /// Tick of the most recent Eschaton (0 = never).
+    #[serde(default)]
+    pub last_eschaton_tick: u64,
 }
 
 /// The complete simulation state.
@@ -187,6 +201,14 @@ pub struct SimState {
     era_notable_institutions: Vec<String>,
     /// The most significant event description in the current era.
     era_defining_event: Option<String>,
+    /// History of past Eschaton events.
+    pub eschaton_history: Vec<EschatonRecord>,
+    /// Accumulated world tension (drives autonomous Eschaton trigger).
+    pub tension: f32,
+    /// Tick of the most recent Eschaton (0 = never fired).
+    pub last_eschaton_tick: u64,
+    /// Frames remaining to show "THE ESCHATON HAS OCCURRED" flash in status bar.
+    pub eschaton_flash: u32,
 }
 
 impl SimState {
@@ -226,6 +248,10 @@ impl SimState {
             era_notable_agents: Vec::new(),
             era_notable_institutions: Vec::new(),
             era_defining_event: None,
+            eschaton_history: Vec::new(),
+            tension: 0.0,
+            last_eschaton_tick: 0,
+            eschaton_flash: 0,
         }
     }
 
@@ -246,6 +272,9 @@ impl SimState {
             current_era_name: Some(self.current_era_name.clone()),
             current_era_start: self.current_era_start,
             era_major_events: self.era_major_events,
+            eschaton_history: self.eschaton_history.clone(),
+            tension: self.tension,
+            last_eschaton_tick: self.last_eschaton_tick,
         }
     }
 
@@ -281,6 +310,10 @@ impl SimState {
             era_notable_agents: Vec::new(),
             era_notable_institutions: Vec::new(),
             era_defining_event: None,
+            eschaton_history: data.eschaton_history,
+            tension: data.tension,
+            last_eschaton_tick: data.last_eschaton_tick,
+            eschaton_flash: 0,
         }
     }
 
@@ -493,6 +526,7 @@ impl SimState {
                     | EventType::ArtifactAcquired
                     | EventType::ArtifactDelivered
                     | EventType::AdventurerDiedInSite
+                    | EventType::EschatonFired
             );
             if is_major {
                 self.era_major_events += 1;
@@ -524,6 +558,34 @@ impl SimState {
                 }
                 // Track defining event (the most recent major event wins)
                 self.era_defining_event = Some(event.description.clone());
+            }
+        }
+
+        // --- Tension accumulation ---
+        // Each major event type adds tension; slow decay per tick
+        for event in &new_events {
+            match event.event_type {
+                EventType::AgentDied => self.tension += 0.02,
+                EventType::InstitutionDissolved => self.tension += 0.05,
+                EventType::SchismOccurred => self.tension += 0.03,
+                EventType::RivalryDeclared | EventType::AllianceStrained => self.tension += 0.02,
+                EventType::AdventurerDiedInSite => self.tension += 0.01,
+                _ => {}
+            }
+        }
+        // Slow decay
+        self.tension = (self.tension - 0.001).max(0.0);
+
+        // --- Autonomous Eschaton check (every 50 ticks) ---
+        if tick % 50 == 0
+            && self.world.params.cosmological_density > COSMO_THRESHOLD
+            && self.tension > TENSION_THRESHOLD
+            && (self.last_eschaton_tick == 0 || tick - self.last_eschaton_tick >= ESCHATON_COOLDOWN)
+        {
+            let trigger_chance = (self.tension * 0.1) as f64;
+            if self.rng.gen_bool(trigger_chance.min(0.5)) {
+                let eschaton_events = self.execute_eschaton(tick);
+                new_events.extend(eschaton_events);
             }
         }
 
@@ -642,6 +704,113 @@ impl SimState {
 
         parts.push(closing.to_string());
         parts.join(" ")
+    }
+
+    /// Execute an Eschaton event — the core world-altering function.
+    /// Called by both autonomous trigger and player trigger.
+    /// Returns the generated log events.
+    pub fn execute_eschaton(&mut self, tick: u64) -> Vec<Event> {
+        let eschaton_type = EschatonType::random(&mut self.rng);
+        let register = self.world.params.narrative_register;
+        let weirdness = self.world.params.weirdness_coefficient;
+        let phonemes = name_gen::load_phoneme_data();
+
+        // Generate prose events
+        let events = eschaton_gen::generate_eschaton_prose(
+            &eschaton_type, tick, register, weirdness, &mut self.rng,
+        );
+
+        // Apply mechanical effects based on type
+        match eschaton_type {
+            EschatonType::TheReckoningOfDebts => {
+                eschaton_gen::execute_reckoning(
+                    &mut self.institutions, &mut self.agents,
+                    &mut self.next_institution_id, &phonemes, weirdness, &mut self.rng,
+                );
+                // Set founded_tick on new institutions
+                for inst in &mut self.institutions {
+                    if inst.founded_tick == 0 && inst.alive {
+                        inst.founded_tick = tick;
+                    }
+                }
+            }
+            EschatonType::TheTaxonomicCorrection => {
+                eschaton_gen::execute_taxonomic_correction(
+                    &mut self.agents, &mut self.world.settlements,
+                    &phonemes, &mut self.rng,
+                );
+            }
+            EschatonType::TheAdministrativeSingularity => {
+                eschaton_gen::execute_singularity(
+                    &mut self.institutions, &mut self.agents,
+                    &mut self.next_institution_id, &phonemes, weirdness, &mut self.rng,
+                );
+                for inst in &mut self.institutions {
+                    if inst.founded_tick == 0 && inst.alive {
+                        inst.founded_tick = tick;
+                    }
+                }
+            }
+            EschatonType::TheGeologicalArgument => {
+                eschaton_gen::execute_geological_argument(
+                    &mut self.world.terrain, &mut self.world.settlements,
+                    &phonemes, &mut self.rng,
+                );
+            }
+            EschatonType::TheDoctrinalCascade => {
+                eschaton_gen::execute_doctrinal_cascade(
+                    &mut self.institutions, &mut self.agents,
+                    &mut self.next_institution_id, &phonemes, weirdness, &mut self.rng,
+                );
+                for inst in &mut self.institutions {
+                    if inst.founded_tick == 0 && inst.alive {
+                        inst.founded_tick = tick;
+                    }
+                }
+            }
+            EschatonType::TheArrivalOfSomethingOwed => {
+                let max_id = self.agents.iter().map(|a| a.id).max().unwrap_or(0) + 1;
+                eschaton_gen::execute_arrival(
+                    &mut self.agents, &self.world.settlements,
+                    self.world.peoples.len(), &phonemes, max_id, &mut self.rng,
+                );
+            }
+        }
+
+        // Record the eschaton
+        let era_before = self.current_era_name.clone();
+
+        // Force an era transition
+        self.era_defining_event = Some(format!("{} has occurred.", eschaton_type.label()));
+        self.transition_era(tick);
+
+        let era_after = self.current_era_name.clone();
+
+        self.eschaton_history.push(EschatonRecord {
+            eschaton_type,
+            tick,
+            era_name_before: era_before,
+            era_name_after: era_after,
+        });
+
+        // Reset tension and reduce cosmological density
+        self.tension = 0.1;
+        self.last_eschaton_tick = tick;
+        self.world.params.cosmological_density = (self.world.params.cosmological_density - 0.2).max(0.1);
+
+        // Shift other world parameters slightly
+        self.world.params.political_churn = (self.world.params.political_churn + self.rng.gen_range(-0.1..0.15)).clamp(0.05, 0.95);
+        self.world.params.weirdness_coefficient = (self.world.params.weirdness_coefficient + self.rng.gen_range(-0.05..0.1)).clamp(0.05, 0.95);
+
+        // Set the status bar flash
+        self.eschaton_flash = 150; // ~5 seconds at 30fps
+
+        events
+    }
+
+    /// Check whether the Eschaton can fire (cooldown check).
+    pub fn can_eschaton(&self) -> bool {
+        self.last_eschaton_tick == 0 || self.world.tick - self.last_eschaton_tick >= ESCHATON_COOLDOWN
     }
 
     /// Process institutional events for one tick.
@@ -1420,6 +1589,11 @@ impl SimState {
             } else {
                 *ttl -= 1;
             }
+        }
+
+        // Tick down eschaton flash
+        if self.eschaton_flash > 0 {
+            self.eschaton_flash -= 1;
         }
     }
 

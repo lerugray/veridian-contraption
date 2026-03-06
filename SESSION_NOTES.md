@@ -1,39 +1,62 @@
 # SESSION NOTES — Last updated: 2026-03-06
 
 ## Current State
-- Phase: Phase 5 IN PROGRESS (5-A complete)
-- Last working feature: Expanded prose generation system with register-sensitive templates
+- Phase: Phase 5 IN PROGRESS (5-A complete, Eschaton system complete)
+- Last working feature: Immanentize the Eschaton system — full implementation
 - Build status: Compiles and runs cleanly (6 warnings, all pre-existing dead_code)
 
 ## What's Working
-- **NEW: Prose Expansion (Phase 5-A)**
-  - **10 template variants per event type** (up from 5-7), all register-sensitive
-  - **5 register-specific word pools**: Bureaucratic, Clinical, Lyrical, Ominous, Conspiratorial — each with ~15 verbs and ~15 nouns
-  - **Subordinate clause system**: ~30% of sentences get a qualifying clause, drawn from register-specific pools (14 bureaucratic, 10 each for other registers)
-  - **Event subordinate clauses**: situation-level clauses (not agent-specific) for variety
-  - **Weirdness-scaled cause system**: mundane (low) → absurdist (medium) → impossible (high). 18 absurdist causes, 12 impossible causes reported as mundane fact
-  - **Impossible institution names**: 30 Kafkaesque names at high weirdness ("The Bureau of Determining What Is and Is Not a Bureau", "The Guild of Procedures That Reference Themselves")
-  - **Oxymoronic epithets**: 18 formally contradictory epithets at high weirdness ("the Provisionally Permanent", "the Officially Unofficial")
-  - **All prose functions now register/weirdness-aware**: generate_institutional_description, generate_site_description, generate_artifact_event, generate_adventurer_death all take register + weirdness params
-  - **lib.rs added** for example binary support
-  - **examples/prose_samples.rs**: generates 20+ sample entries for prose review
+- **NEW: Eschaton System**
+  - **Six Eschaton types**: Reckoning of Debts, Taxonomic Correction, Administrative Singularity, Geological Argument, Doctrinal Cascade, Arrival of Something Owed
+  - **Player trigger**: Shift+E opens ominous confirmation screen showing tension, cosmological density, eschaton history; Left/Right arrows to navigate, Enter to confirm
+  - **Autonomous trigger**: Fires when cosmological_density > 0.65 AND tension > 0.7 AND random check passes (every 50 ticks)
+  - **Tension system**: Accumulates from agent deaths (+0.02), institution dissolutions (+0.05), schisms (+0.03), rivalries (+0.02), adventurer deaths (+0.01); decays -0.001/tick
+  - **Cooldown**: 500 ticks between eschatons
+  - **Mechanical effects per type**:
+    - Reckoning: dissolves ~40% institutions, inverts ~30% charters, clears all relationships, spawns 1-2 new institutions
+    - Taxonomic Correction: revokes all epithets, assigns post-correction epithets, renames ~40% settlements
+    - Administrative Singularity: merges all institutions → 3-5 rival successor bodies
+    - Geological Argument: reshapes ~20% terrain, removes/moves settlements, adds 1-3 new ones
+    - Doctrinal Cascade: revises all doctrines, ~30% agents lose affiliation, spawns 2-4 new institutions
+    - Arrival: spawns 5-12 mysterious new agents with high ambition and distinctive epithets
+  - **Post-eschaton effects**: forces era transition, resets tension to 0.1, reduces cosmological_density by 0.2, slightly shifts political_churn and weirdness_coefficient
+  - **UI: Status bar flash** — "THE ESCHATON HAS OCCURRED" in alternating red/yellow for ~5 seconds
+  - **UI: Log flood** — 8-12 dense prose events generated per eschaton, all register-sensitive
+  - **UI: World Report** — shows eschaton count, history, current tension level
+  - **UI: Help screen** — updated with Shift+E keybinding
+  - **Save/load**: All eschaton state (history, tension, last_eschaton_tick) persisted via SaveData
 
-- **EXISTING: All Phase 1-4 systems** — fully working
+- **EXISTING: All Phase 1-5A systems** — fully working
+
+## Files Modified This Session
+- `src/sim/eschaton.rs` — NEW: EschatonType, EschatonRecord, constants
+- `src/gen/eschaton_gen.rs` — NEW: prose generation + mechanical execution for all 6 types
+- `src/sim/mod.rs` — Added eschaton fields to SimState/SaveData, tension tracking in tick(), execute_eschaton(), can_eschaton()
+- `src/sim/event.rs` — Added EschatonFired event type with LightRed color
+- `src/gen/mod.rs` — Registered eschaton_gen module
+- `src/gen/prose_gen.rs` — Added EschatonFired to match in generate_description
+- `src/main.rs` — Added Shift+E keybinding, EschatonConfirm overlay handler (Left/Right navigation)
+- `src/ui/layout.rs` — Added EschatonConfirm overlay rendering, status bar eschaton flash
+- `src/ui/overlays.rs` — Added draw_eschaton_confirm(), eschaton section in world report, help screen update
+- `CLAUDE.md` — Updated phase tracking and keybindings
+- `SESSION_NOTES.md` — Full rewrite
 
 ## Decisions Made
-- All verb pools use single-word past-tense forms only (no multi-word phrases) to ensure grammatical compatibility with passive constructions ("was X", "the Y was X")
-- All noun pools avoid vowel-initial words to prevent "a/an" article mismatches in templates
-- Subordinate clauses are register-specific (bureaucratic clauses differ from ominous ones)
-- Impossible causes only appear at weirdness > 0.8 (40% chance); absurdist causes appear at weirdness > 0.4
-- Impossible institution names appear at weirdness > 0.7 (35% chance)
-- Oxymoronic epithets appear at weirdness > 0.65 (25% chance)
-- `generate_epithet` wrapper removed; callers use `generate_epithet_with_weirdness` directly
-- `generate_institution_name` wrapper preserved for backward compat; new code uses `_with_weirdness` variant
+- Shift+E for player trigger (not ESC — ESC is already used for closing overlays)
+- Left/Right arrows to navigate Eschaton confirmation (horizontal layout matches button placement)
+- Default selection on eschaton confirm is Cancel (safe default)
+- Tension decays slowly (-0.001/tick) so it accumulates over time
+- Autonomous trigger checks every 50 ticks (not every tick) to reduce overhead
+- Cosmological density reduced by 0.2 after each eschaton (prevents rapid re-triggering)
+- All eschaton prose is register-sensitive (Bureaucratic, Ominous, Clinical, etc.)
+- Geological Argument always keeps at least 2 settlements
+- Administrative Singularity creates 3-5 successor bodies (always more fragmentation)
+- Arrival agents have high ambition (0.5-1.0) and mysterious epithets
 
 ## Known Issues
 - Room purposes not yet referenced in prose generation (deferred from Phase 3)
 - 6 compiler warnings (pre-existing, all dead_code)
-- Some lyrical nouns ("tide", "remnant") read slightly oddly when used as bureaucratic objects in shared templates — acceptable given the register is meant to color the prose strangely
+- EschatonType::description() method exists but is #[allow(dead_code)] — available for future use
 
 ## Next Steps
 - Phase 5-B: Color/symbol tuning (Brogue-quality ASCII expressiveness), full export system
@@ -41,9 +64,10 @@
 
 ## Notes for Next Claude
 - Player is not a programmer — explain decisions briefly, don't ask them to edit code
-- prose_gen.rs is now ~1050 lines — the main prose engine. All generation flows through register-specific helper functions (gen_agent_died, gen_inst_founded, etc.)
-- All prose functions that previously took only `rng` now also take `register: NarrativeRegister` and `weirdness: f32` as the last two params
-- name_gen.rs has `generate_institution_name_with_weirdness()` and `generate_epithet_with_weirdness()` — these are the primary public APIs now
-- lib.rs exists to support examples/ — it re-exports all modules
-- Run `cargo run --example prose_samples` to preview prose output
+- The eschaton system touches many files but is well-contained: eschaton.rs for types, eschaton_gen.rs for logic, and hooks in sim/mod.rs tick() for tension + autonomous trigger
+- Tension is a f32 that accumulates from events and decays slowly; displayed as percentage in UI
+- execute_eschaton() in sim/mod.rs is the single entry point — handles both autonomous and player triggers
+- The player triggers via Shift+E → EschatonConfirm overlay → execute_eschaton()
+- Autonomous triggers happen in tick() after tension tracking, before era transition check
+- Eschaton confirmation uses Left/Right arrows (not Up/Down) since buttons are side-by-side
 - SESSION_NOTES.md should be fully rewritten each update, not appended to
