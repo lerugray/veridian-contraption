@@ -135,6 +135,8 @@ pub struct SimState {
     pub next_institution_id: u64,
     /// Currently followed entity (None = not following).
     pub follow_target: Option<FollowTarget>,
+    /// Speed before pausing (so unpause restores the previous speed).
+    pub pre_pause_speed: Option<SimSpeed>,
 }
 
 impl SimState {
@@ -164,6 +166,7 @@ impl SimState {
             last_autosave_tick: 0,
             next_institution_id: next_id,
             follow_target: None,
+            pre_pause_speed: None,
         }
     }
 
@@ -203,6 +206,7 @@ impl SimState {
             last_autosave_tick: last_tick,
             next_institution_id: next_id,
             follow_target: data.follow_target,
+            pre_pause_speed: None,
         }
     }
 

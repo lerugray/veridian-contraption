@@ -117,7 +117,7 @@ fn run_app(
         // Run simulation ticks when in-game and no overlay is active
         if let AppMode::InGame = &mode {
             if let Some(ref mut s) = sim {
-                if s.overlay == Overlay::None {
+                if s.overlay == Overlay::None || matches!(s.overlay, Overlay::SiteView(_, _)) {
                     s.step_frame(frame_count);
                 }
 
@@ -446,10 +446,13 @@ fn handle_main_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifi
             return InputResult::Continue;
         }
         KeyCode::Char(' ') => {
-            sim.speed = if sim.speed == SimSpeed::Paused {
-                SimSpeed::Run1x
+            if sim.speed == SimSpeed::Paused {
+                // Unpause: restore previous speed, default to 1x
+                sim.speed = sim.pre_pause_speed.take().unwrap_or(SimSpeed::Run1x);
             } else {
-                SimSpeed::Paused
+                // Pause: remember current speed
+                sim.pre_pause_speed = Some(sim.speed);
+                sim.speed = SimSpeed::Paused;
             };
         }
         KeyCode::Char('.') => {
@@ -716,11 +719,28 @@ fn handle_site_view_input(sim: &mut SimState, key: KeyCode) {
                 sim.overlay = Overlay::SiteView(site_idx, floor_idx - 1);
             }
         }
-        KeyCode::Char('>') | KeyCode::Char('.') => {
+        KeyCode::Char('>') => {
             if let Some(site) = sim.sites.get(site_idx) {
                 if floor_idx + 1 < site.floors.len() {
                     sim.overlay = Overlay::SiteView(site_idx, floor_idx + 1);
                 }
+            }
+        }
+        // Allow simulation speed controls while viewing a site
+        KeyCode::Char(' ') => {
+            if sim.speed == SimSpeed::Paused {
+                sim.speed = sim.pre_pause_speed.take().unwrap_or(SimSpeed::Run1x);
+            } else {
+                sim.pre_pause_speed = Some(sim.speed);
+                sim.speed = SimSpeed::Paused;
+            }
+        }
+        KeyCode::Char('1') => sim.speed = SimSpeed::Run1x,
+        KeyCode::Char('5') => sim.speed = SimSpeed::Run5x,
+        KeyCode::Char('2') => sim.speed = SimSpeed::Run20x,
+        KeyCode::Char('.') => {
+            if sim.speed == SimSpeed::Paused {
+                sim.tick();
             }
         }
         _ => {}
