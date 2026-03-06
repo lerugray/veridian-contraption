@@ -4,7 +4,65 @@ use rand::Rng;
 use crate::sim::event::EventType;
 use crate::sim::world::World;
 
-/// Generate the prose description for an event, given the world context.
+// ---------------------------------------------------------------------------
+// Shared word lists — bureaucratic flavor
+// ---------------------------------------------------------------------------
+
+const PROCEDURAL_VERBS: &[&str] = &[
+    "filed", "disputed", "remanded", "indicated", "noted",
+    "acknowledged", "declined to record", "formally objected to",
+    "referred to committee", "tabled", "struck from the agenda",
+    "appended to the existing dossier",
+];
+
+const BUREAUCRATIC_NOUNS: &[&str] = &[
+    "inquiry", "filing", "counter-filing", "tribunal",
+    "committee", "subcommittee", "provisional assessment", "formal notation",
+    "memorandum", "register", "ledger entry", "supplementary docket",
+    "notice of intent", "petition", "procedural review",
+];
+
+const TEMPORAL_HEDGES: &[&str] = &[
+    "in due course", "pending review", "subject to revision",
+    "contingent upon further inquiry", "without prejudice",
+    "at some future date to be determined", "upon completion of the relevant paperwork",
+    "when circumstances permit",
+];
+
+const ABSURDIST_CAUSES: &[&str] = &[
+    "a metaphysical irregularity", "an unresolved taxonomic dispute",
+    "seventeen procedural objections", "a clerical error of uncertain origin",
+    "the continued existence of the previous filing",
+    "an unpaid obligation dating to the previous era",
+    "a boundary dispute that has since been resolved but not acknowledged",
+    "the unauthorized relocation of a surveyor's benchmark",
+    "a prophecy that was officially retracted but not forgotten",
+    "the spontaneous reclassification of adjacent terrain",
+];
+
+fn pick<'a>(options: &'a [&'a str], rng: &mut StdRng) -> &'a str {
+    options[rng.gen_range(0..options.len())]
+}
+
+/// Generate a subordinate clause to embed in a longer sentence.
+fn subordinate_clause(name: &str, loc: &str, rng: &mut StdRng) -> String {
+    match rng.gen_range(0..12) {
+        0 => format!("whose previous {} remained unresolved", pick(BUREAUCRATIC_NOUNS, rng)),
+        1 => format!("about whom the {} of {} had {} concerns", pick(BUREAUCRATIC_NOUNS, rng), loc, pick(PROCEDURAL_VERBS, rng)),
+        2 => format!("whose standing in {} was a matter of some administrative ambiguity", loc),
+        3 => format!("who had been the subject of {} prior to the event in question", pick(BUREAUCRATIC_NOUNS, rng)),
+        4 => format!("whose documentation the office of {} had {} on three prior occasions", loc, pick(PROCEDURAL_VERBS, rng)),
+        5 => format!("against whom {} had been {} but never resolved", pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+        6 => format!("whose file contained a marginal annotation reading 'see also: {}'", pick(ABSURDIST_CAUSES, rng)),
+        7 => format!("whom the records of {} listed under two distinct and contradictory entries", loc),
+        8 => format!("whose relationship to the matter was described as 'provisional'"),
+        9 => format!("who had been {} by the relevant authorities {}", pick(PROCEDURAL_VERBS, rng), pick(TEMPORAL_HEDGES, rng)),
+        10 => format!("about whom {} had been filed regarding {}", pick(BUREAUCRATIC_NOUNS, rng), pick(ABSURDIST_CAUSES, rng)),
+        _ => format!("whose presence in {} the {} had not yet formally acknowledged", loc, pick(BUREAUCRATIC_NOUNS, rng)),
+    }
+}
+
+/// Generate the prose description for an event.
 pub fn generate_description(
     event_type: &EventType,
     agent_name: Option<&str>,
@@ -17,122 +75,90 @@ pub fn generate_description(
 
     match event_type {
         EventType::AgentDied => {
-            let epithets = [
-                "of no particular distinction",
-                "formerly in good standing",
-                "whose paperwork remained incomplete",
-                "late of several appointments",
-                "whose debts were subsequently forgiven",
-                "the twice-mentioned",
-                "of disputed provenance",
-                "whose census entry has been struck through",
-            ];
-            let closings = [
-                "No formal inquiry was opened.",
-                "The relevant authorities were not notified in time.",
-                "A clerk noted the absence in the margin of an unrelated ledger.",
-                "The matter was filed under 'resolved by circumstance.'",
-                "This was recorded and promptly misfiled.",
-                "The vacancy has not yet been filled.",
-            ];
-            let ep = epithets[rng.gen_range(0..epithets.len())];
-            let cl = closings[rng.gen_range(0..closings.len())];
-            format!("{}, {}, ceased to be present in {}. {}", name, ep, loc, cl)
+            let sub = subordinate_clause(name, loc, rng);
+            match rng.gen_range(0..7) {
+                0 => format!("{}, {}, ceased to be present in {}. No formal {} was opened.", name, sub, loc, pick(BUREAUCRATIC_NOUNS, rng)),
+                1 => format!("{}, formerly in good standing, was removed from the census of {}. A clerk {} the absence in the margin of an unrelated ledger.", name, loc, pick(PROCEDURAL_VERBS, rng)),
+                2 => format!("The {} of {} confirmed that {}, {}, is no longer extant. The relevant paperwork was completed {}.", pick(BUREAUCRATIC_NOUNS, rng), loc, name, sub, pick(TEMPORAL_HEDGES, rng)),
+                3 => format!("{} of {} expired, or was otherwise rendered absent. The vacancy has not yet been filled. The matter was {} under 'resolved by circumstance.'", name, loc, pick(PROCEDURAL_VERBS, rng)),
+                4 => format!("{}, whose debts were subsequently forgiven, ceased to occupy their census entry in {}. This was {} and promptly misfiled.", name, loc, pick(PROCEDURAL_VERBS, rng)),
+                5 => format!("The continued existence of {} in {} was downgraded from 'confirmed' to 'discontinued.' The relevant authorities were not notified {}.", name, loc, pick(TEMPORAL_HEDGES, rng)),
+                _ => format!("{}, {}, was struck from the register of {}. The cause was attributed to {}.", name, sub, loc, pick(ABSURDIST_CAUSES, rng)),
+            }
         }
 
         EventType::AgentArrived => {
-            let manners = [
-                "without prior notice or evident purpose",
-                "bearing documentation of uncertain validity",
-                "in a state suggesting recent travel",
-                "with the air of someone who has been expected elsewhere",
-                "claiming business with no one in particular",
-                "and was provisionally noted in the register",
-            ];
-            let m = manners[rng.gen_range(0..manners.len())];
-            format!("{} arrived at {} {}.", name, loc, m)
+            let sub = subordinate_clause(name, loc, rng);
+            match rng.gen_range(0..7) {
+                0 => format!("{} arrived at {} without prior notice or evident purpose. The local {} {} the arrival {}.", name, loc, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng), pick(TEMPORAL_HEDGES, rng)),
+                1 => format!("{}, {}, appeared in {} bearing documentation of uncertain validity.", name, sub, loc),
+                2 => format!("The {} of {} recorded the arrival of {}, though the arrival itself was {} on procedural grounds.", pick(BUREAUCRATIC_NOUNS, rng), loc, name, pick(PROCEDURAL_VERBS, rng)),
+                3 => format!("{} entered {} with the air of someone who has been expected elsewhere. A {} was opened {}.", name, loc, pick(BUREAUCRATIC_NOUNS, rng), pick(TEMPORAL_HEDGES, rng)),
+                4 => format!("{}, {}, was provisionally noted in the register of {}. The notation included several caveats.", name, sub, loc),
+                5 => format!("{} arrived in {} claiming business with no one in particular. This claim was {} by the local office.", name, loc, pick(PROCEDURAL_VERBS, rng)),
+                _ => format!("The presence of {} was detected in {} by means of {}. A {} was {} accordingly.", name, loc, pick(ABSURDIST_CAUSES, rng), pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+            }
         }
 
         EventType::AgentDeparted => {
-            let reasons = [
-                "citing personal obligations of an unspecified nature",
-                "without filing the customary notice of departure",
-                "having concluded business that no record describes",
-                "under circumstances the local clerk declined to elaborate upon",
-                "leaving behind several unsigned documents",
-                "in what was later described as 'an unremarkable exit'",
-            ];
-            let r = reasons[rng.gen_range(0..reasons.len())];
-            format!("{} departed from {} {}.", name, loc, r)
+            let sub = subordinate_clause(name, loc, rng);
+            match rng.gen_range(0..7) {
+                0 => format!("{} departed from {} citing personal obligations of an unspecified nature. The {} was {} accordingly.", name, loc, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                1 => format!("{}, {}, left {} without filing the customary notice of departure.", name, sub, loc),
+                2 => format!("The departure of {} from {} was {} by the local office. Several unsigned documents were left behind.", name, loc, pick(PROCEDURAL_VERBS, rng)),
+                3 => format!("{} concluded business in {} that no record describes and departed {}.", name, loc, pick(TEMPORAL_HEDGES, rng)),
+                4 => format!("{}, {}, vacated {} under circumstances the local clerk declined to elaborate upon.", name, sub, loc),
+                5 => format!("The register of {} was updated to reflect the absence of {}. The update was attributed to {}.", loc, name, pick(ABSURDIST_CAUSES, rng)),
+                _ => format!("{} was no longer present in {} as of the most recent {}, a fact the office {} without comment.", name, loc, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+            }
         }
 
         EventType::SettlementGrew => {
-            let details = [
-                "The increase was noted and filed.",
-                "A clerk expressed cautious optimism, then retracted the statement.",
-                "The additional residents were assigned provisional status.",
-                "This growth was attributed to factors the administration declined to specify.",
-                "The housing register was updated with reluctant precision.",
-            ];
-            let d = details[rng.gen_range(0..details.len())];
-            format!(
-                "The settlement of {} recorded an increase in its registered population. {}",
-                loc, d
-            )
+            match rng.gen_range(0..6) {
+                0 => format!("The settlement of {} recorded an increase in its registered population. The {} was {} with reluctant precision.", loc, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                1 => format!("The population of {} expanded by a number the census office described as 'within acceptable parameters.' The growth was attributed to {}.", loc, pick(ABSURDIST_CAUSES, rng)),
+                2 => format!("Additional residents were assigned provisional status in {}. A clerk expressed cautious optimism, then {} the statement.", loc, pick(PROCEDURAL_VERBS, rng)),
+                3 => format!("{} experienced demographic expansion. The housing {} was updated {}.", loc, pick(BUREAUCRATIC_NOUNS, rng), pick(TEMPORAL_HEDGES, rng)),
+                4 => format!("The population figures of {} were revised upward. This revision was {} to factors the administration declined to specify.", loc, pick(PROCEDURAL_VERBS, rng)),
+                _ => format!("New arrivals in {} prompted the opening of a supplementary {}, to be reviewed {}.", loc, pick(BUREAUCRATIC_NOUNS, rng), pick(TEMPORAL_HEDGES, rng)),
+            }
         }
 
         EventType::SettlementShrank => {
-            let details = [
-                "The decrease was attributed to 'general attrition.'",
-                "Several addresses were reclassified as 'potentially occupied.'",
-                "The census office noted the discrepancy but offered no correction.",
-                "A minor official suggested the figures may have been previously inflated.",
-                "The shortfall was absorbed into the next quarter's projections.",
-            ];
-            let d = details[rng.gen_range(0..details.len())];
-            format!(
-                "The population of {} experienced a documented reduction. {}",
-                loc, d
-            )
+            match rng.gen_range(0..6) {
+                0 => format!("The population of {} experienced a documented reduction. The decrease was attributed to {}.", loc, pick(ABSURDIST_CAUSES, rng)),
+                1 => format!("Several addresses in {} were reclassified as 'potentially occupied.' The {} office {} the discrepancy but offered no correction.", loc, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                2 => format!("A minor official in {} suggested the population figures may have been previously inflated. The shortfall was absorbed into the next quarter's projections.", loc),
+                3 => format!("The demographic {} of {} showed contraction. This was {} without ceremony.", pick(BUREAUCRATIC_NOUNS, rng), loc, pick(PROCEDURAL_VERBS, rng)),
+                4 => format!("{} recorded fewer inhabitants than its {} accounted for. The discrepancy remains under review {}.", loc, pick(BUREAUCRATIC_NOUNS, rng), pick(TEMPORAL_HEDGES, rng)),
+                _ => format!("The census of {} was revised downward, a correction the office described as 'overdue.' The underlying cause — {} — was not addressed.", loc, pick(ABSURDIST_CAUSES, rng)),
+            }
         }
 
         EventType::WeatherEvent => {
-            let conditions = [
-                "unseasonably damp", "oppressively still", "characterized by an amber haze",
-                "marked by a persistent low wind", "colder than administrative guidelines suggest",
-                "warm in a manner several residents described as 'suspicious'",
-                "foggy beyond what the local almanac had predicted",
-                "punctuated by brief intervals of something not quite rain",
-            ];
-            let causes = [
-                "prevailing atmospheric indifference",
-                "a seasonal pattern the meteorological office has yet to name",
-                "conditions upstream that no one has taken responsibility for",
-                "the natural consequence of geography",
-                "factors the Bureau of Ambient Conditions is still reviewing",
-                "what one official termed 'the usual arrangement'",
-            ];
-            let c = conditions[rng.gen_range(0..conditions.len())];
-            let ca = causes[rng.gen_range(0..causes.len())];
-            format!(
-                "Conditions in the vicinity of {} became {}. This was attributed to {}.",
-                loc, c, ca
-            )
+            match rng.gen_range(0..6) {
+                0 => format!("Conditions in the vicinity of {} became unseasonably damp. This was attributed to {}, which the Bureau of Ambient Conditions is still reviewing.", loc, pick(ABSURDIST_CAUSES, rng)),
+                1 => format!("The weather near {} was {} by the meteorological office as 'within parameters,' though several residents {} the characterization.", loc, pick(PROCEDURAL_VERBS, rng), pick(PROCEDURAL_VERBS, rng)),
+                2 => format!("An amber haze settled over {}. The phenomenon was attributed to {} and logged under the existing {} for atmospheric irregularities.", loc, pick(ABSURDIST_CAUSES, rng), pick(BUREAUCRATIC_NOUNS, rng)),
+                3 => format!("{} experienced conditions that one official termed 'the usual arrangement.' A {} was opened {}, though expectations for its conclusion are modest.", loc, pick(BUREAUCRATIC_NOUNS, rng), pick(TEMPORAL_HEDGES, rng)),
+                4 => format!("A persistent low wind in the vicinity of {} prompted the filing of a {} with the regional office. The {} was {} but not acted upon.", loc, pick(BUREAUCRATIC_NOUNS, rng), pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                _ => format!("The area surrounding {} was punctuated by brief intervals of something not quite rain. Prevailing atmospheric indifference was {} as the cause.", loc, pick(PROCEDURAL_VERBS, rng)),
+            }
         }
 
         EventType::AgeEvent => {
-            let milestones = [
-                "has persisted in the world for a notable duration",
-                "has survived long enough to become a matter of minor administrative interest",
-                "continues to occupy their census entry with considerable tenacity",
-                "has reached an age that the actuarial tables regard with skepticism",
-            ];
-            let m = milestones[rng.gen_range(0..milestones.len())];
-            format!("{} of {} {}.", name, loc, m)
+            let sub = subordinate_clause(name, loc, rng);
+            match rng.gen_range(0..6) {
+                0 => format!("{} of {} has persisted in the world for a notable duration. The actuarial tables regard this with skepticism.", name, loc),
+                1 => format!("{}, {}, continues to occupy their census entry with considerable tenacity.", name, sub),
+                2 => format!("The longevity of {} has become a matter of minor administrative interest in {}. A {} was {} to document the fact.", name, loc, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                3 => format!("{} of {} has survived long enough to require the opening of a supplementary {} for their records.", name, loc, pick(BUREAUCRATIC_NOUNS, rng)),
+                4 => format!("{}, {}, has reached an age that the {} of {} considers 'statistically noteworthy.'", name, sub, pick(BUREAUCRATIC_NOUNS, rng), loc),
+                _ => format!("The continued existence of {} in {} was {} by the census office, which amended their file {}.", name, loc, pick(PROCEDURAL_VERBS, rng), pick(TEMPORAL_HEDGES, rng)),
+            }
         }
 
         EventType::CensusReport => {
-            // This one is handled directly in the tick() method with specific counts
             format!("A census was conducted. The results were filed.")
         }
 
@@ -141,18 +167,18 @@ pub fn generate_description(
         }
 
         EventType::AgentBorn => {
-            let circumstances = [
-                "under circumstances the registrar described as 'standard'",
-                "to the apparent surprise of the local census office",
-                "and was assigned a provisional identity number",
-                "amid paperwork that had already been prepared",
-                "without the customary advance notification to the Bureau of New Arrivals",
-            ];
-            let c = circumstances[rng.gen_range(0..circumstances.len())];
-            format!("{} entered the records of {} {}.", name, loc, c)
+            let sub = subordinate_clause(name, loc, rng);
+            match rng.gen_range(0..6) {
+                0 => format!("{} entered the records of {} under circumstances the registrar described as 'standard.' A provisional identity number was assigned {}.", name, loc, pick(TEMPORAL_HEDGES, rng)),
+                1 => format!("{}, {}, was added to the census of {} to the apparent surprise of the local office.", name, sub, loc),
+                2 => format!("The {} of {} {} the existence of {} amid paperwork that had already been prepared.", pick(BUREAUCRATIC_NOUNS, rng), loc, pick(PROCEDURAL_VERBS, rng), name),
+                3 => format!("{} materialized in the records of {} without the customary advance notification to the Bureau of New Arrivals. A {} was opened {}.", name, loc, pick(BUREAUCRATIC_NOUNS, rng), pick(TEMPORAL_HEDGES, rng)),
+                4 => format!("A new entry for {} was {} in the register of {}, attributed to {}.", name, pick(PROCEDURAL_VERBS, rng), loc, pick(ABSURDIST_CAUSES, rng)),
+                _ => format!("{} was assigned to the census of {}. The relevant {} was completed with a speed that alarmed the processing clerk.", name, loc, pick(BUREAUCRATIC_NOUNS, rng)),
+            }
         }
 
-        // Institutional events use generate_institutional_description instead
+        // Institutional events use generate_institutional_description
         EventType::InstitutionFounded
         | EventType::InstitutionDissolved
         | EventType::SchismOccurred
@@ -169,9 +195,6 @@ pub fn generate_description(
 }
 
 /// Generate prose for institutional events.
-/// `agent_name` is the agent involved (if any).
-/// `inst_name` is the primary institution.
-/// `other_name` is a second institution or location name (context-dependent).
 pub fn generate_institutional_description(
     event_type: &EventType,
     agent_name: Option<&str>,
@@ -185,86 +208,96 @@ pub fn generate_institutional_description(
 
     match event_type {
         EventType::InstitutionFounded => {
-            let phrases = [
-                format!("{} has been formally established near {}, by the initiative of {}. Its charter has been filed.", inst, other, agent),
-                format!("A new organization, {}, was founded by {} in the vicinity of {}. The relevant authorities have been notified.", inst, agent, other),
-                format!("{} brought {} into existence near {}. The necessary paperwork was completed with unusual efficiency.", agent, inst, other),
-            ];
-            phrases[rng.gen_range(0..phrases.len())].clone()
+            match rng.gen_range(0..5) {
+                0 => format!("{} has been formally established near {}, by the initiative of {}. Its charter has been {} and a {} opened.", inst, other, agent, pick(PROCEDURAL_VERBS, rng), pick(BUREAUCRATIC_NOUNS, rng)),
+                1 => format!("A new organization, {}, was founded by {} in the vicinity of {}. The relevant authorities were notified {}.", inst, agent, other, pick(TEMPORAL_HEDGES, rng)),
+                2 => format!("{} brought {} into existence near {}. The necessary paperwork was completed with a thoroughness that surprised the filing office.", agent, inst, other),
+                3 => format!("The founding of {} was {} near {} by {}, who cited {} as the motivating factor.", inst, pick(PROCEDURAL_VERBS, rng), other, agent, pick(ABSURDIST_CAUSES, rng)),
+                _ => format!("{} established {} in {}. A {} was immediately opened to govern its activities, though its scope remains {}.", agent, inst, other, pick(BUREAUCRATIC_NOUNS, rng), pick(TEMPORAL_HEDGES, rng)),
+            }
         }
         EventType::InstitutionDissolved => {
-            let phrases = [
-                format!("{} has ceased to function as a going concern. Its records have been transferred to the Archive of Defunct Bodies.", inst),
-                format!("The dissolution of {} was recorded without ceremony. Its remaining assets, if any, were not enumerated.", inst),
-                format!("{} was formally dissolved. The reasons given were 'insufficient membership and declining relevance.'", inst),
-            ];
-            phrases[rng.gen_range(0..phrases.len())].clone()
+            match rng.gen_range(0..5) {
+                0 => format!("{} has ceased to function as a going concern. Its records have been transferred to the Archive of Defunct Bodies.", inst),
+                1 => format!("The dissolution of {} was {} without ceremony. Its remaining assets, if any, were not enumerated.", inst, pick(PROCEDURAL_VERBS, rng)),
+                2 => format!("{} was formally dissolved. The reasons given were 'insufficient membership and declining relevance.' A {} was filed {}.", inst, pick(BUREAUCRATIC_NOUNS, rng), pick(TEMPORAL_HEDGES, rng)),
+                3 => format!("The {} formerly known as {} no longer exists in any administratively meaningful sense. Its {} was {} for the final time.", pick(BUREAUCRATIC_NOUNS, rng), inst, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                _ => format!("{} was struck from the register of active organizations, a consequence of {}. No successor body was designated.", inst, pick(ABSURDIST_CAUSES, rng)),
+            }
         }
         EventType::SchismOccurred => {
-            let phrases = [
-                format!("A doctrinal rupture within {} has produced irreconcilable factions.", inst),
-                format!("{} suffered a schism of considerable administrative consequence.", inst),
-                format!("Internal disagreements within {} escalated beyond the capacity of its mediation procedures.", inst),
-            ];
-            phrases[rng.gen_range(0..phrases.len())].clone()
+            match rng.gen_range(0..5) {
+                0 => format!("A doctrinal rupture within {} has produced irreconcilable factions. The {} was {} but could not contain the disagreement.", inst, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                1 => format!("{} suffered a schism of considerable administrative consequence. The immediate cause was {}.", inst, pick(ABSURDIST_CAUSES, rng)),
+                2 => format!("Internal disagreements within {} escalated beyond the capacity of its mediation procedures. A {} was convened but dissolved before reaching conclusion.", inst, pick(BUREAUCRATIC_NOUNS, rng)),
+                3 => format!("The membership of {} fractured along lines that the organization's charter had not anticipated. Each faction {} the other's legitimacy.", inst, pick(PROCEDURAL_VERBS, rng)),
+                _ => format!("{} split into opposing camps over a matter that both sides describe as 'fundamental.' Outside observers {} the dispute as 'largely procedural.'", inst, pick(PROCEDURAL_VERBS, rng)),
+            }
         }
         EventType::DoctrineShifted => {
-            let phrases = [
-                format!("{} has officially revised one of its foundational positions. The previous position was stricken from the record.", inst),
-                format!("A doctrinal adjustment within {} was announced without explanation.", inst),
-                format!("{} quietly amended its official doctrine. Members were instructed to update their personal copies.", inst),
-            ];
-            phrases[rng.gen_range(0..phrases.len())].clone()
+            match rng.gen_range(0..5) {
+                0 => format!("{} has officially revised one of its foundational positions. The previous position was stricken from the record {}.", inst, pick(TEMPORAL_HEDGES, rng)),
+                1 => format!("A doctrinal adjustment within {} was announced without explanation. Members were instructed to update their personal copies of the {}.", inst, pick(BUREAUCRATIC_NOUNS, rng)),
+                2 => format!("{} quietly amended its official doctrine, citing {}. The amendment was {} by the internal {}.", inst, pick(ABSURDIST_CAUSES, rng), pick(PROCEDURAL_VERBS, rng), pick(BUREAUCRATIC_NOUNS, rng)),
+                3 => format!("The doctrinal {} of {} was revised. The old position, which had stood for some time, was replaced with one that the leadership described as 'more current.'", pick(BUREAUCRATIC_NOUNS, rng), inst),
+                _ => format!("{} issued a correction to its stated beliefs. The correction was {} to be a minor clarification; those familiar with the matter disagree.", inst, pick(PROCEDURAL_VERBS, rng)),
+            }
         }
         EventType::AllianceFormed => {
-            let phrases = [
-                format!("{} and {} have entered into a formal arrangement of mutual benefit.", inst, other),
-                format!("An alliance between {} and {} was ratified with the appropriate signatures.", inst, other),
-                format!("{} extended a hand of cooperation to {}. The hand was accepted, provisionally.", inst, other),
-            ];
-            phrases[rng.gen_range(0..phrases.len())].clone()
+            match rng.gen_range(0..5) {
+                0 => format!("{} and {} have entered into a formal arrangement of mutual benefit. The {} was ratified {}.", inst, other, pick(BUREAUCRATIC_NOUNS, rng), pick(TEMPORAL_HEDGES, rng)),
+                1 => format!("An alliance between {} and {} was {} with the appropriate signatures. The terms are to be reviewed {}.", inst, other, pick(PROCEDURAL_VERBS, rng), pick(TEMPORAL_HEDGES, rng)),
+                2 => format!("{} extended a hand of cooperation to {}. The hand was accepted, provisionally, and a joint {} was established.", inst, other, pick(BUREAUCRATIC_NOUNS, rng)),
+                3 => format!("Following protracted negotiation, {} and {} have agreed to coordinate their activities. A shared {} was {} to formalize the arrangement.", inst, other, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                _ => format!("{} and {} announced an alliance, surprising observers who had expected continued hostility. The agreement was attributed to {}.", inst, other, pick(ABSURDIST_CAUSES, rng)),
+            }
         }
         EventType::AllianceStrained => {
-            let phrases = [
-                format!("Relations between {} and {} have deteriorated over a matter that both parties describe differently.", inst, other),
-                format!("{} filed a formal complaint against {}. The complaint was acknowledged but not addressed.", inst, other),
-                format!("Tensions between {} and {} reached a level that required the appointment of a mediator. No mediator was appointed.", inst, other),
-            ];
-            phrases[rng.gen_range(0..phrases.len())].clone()
+            match rng.gen_range(0..5) {
+                0 => format!("Relations between {} and {} have deteriorated over a matter that both parties describe differently. A {} was {} but not addressed.", inst, other, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                1 => format!("{} {} a formal complaint against {}. The complaint was acknowledged {}.", inst, pick(PROCEDURAL_VERBS, rng), other, pick(TEMPORAL_HEDGES, rng)),
+                2 => format!("Tensions between {} and {} reached a level that required the appointment of a mediator. No mediator was appointed, owing to {}.", inst, other, pick(ABSURDIST_CAUSES, rng)),
+                3 => format!("The relationship between {} and {} was downgraded from 'cooperative' to 'under review.' The underlying cause was {} as {}.", inst, other, pick(PROCEDURAL_VERBS, rng), pick(ABSURDIST_CAUSES, rng)),
+                _ => format!("{} and {} exchanged formal objections regarding {}. Neither objection was resolved. Both were filed.", inst, other, pick(ABSURDIST_CAUSES, rng)),
+            }
         }
         EventType::RivalryDeclared => {
-            let phrases = [
-                format!("{} has declared {} to be operating in opposition to its interests.", inst, other),
-                format!("A state of formal rivalry now exists between {} and {}.", inst, other),
-                format!("{} publicly denounced {} in terms that left little room for diplomatic interpretation.", inst, other),
-            ];
-            phrases[rng.gen_range(0..phrases.len())].clone()
+            match rng.gen_range(0..5) {
+                0 => format!("{} has declared {} to be operating in opposition to its interests. A {} was {} to document the grievance.", inst, other, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                1 => format!("A state of formal rivalry now exists between {} and {}. The declaration cited {} as the precipitating factor.", inst, other, pick(ABSURDIST_CAUSES, rng)),
+                2 => format!("{} publicly denounced {} in terms that left little room for diplomatic interpretation. A response is expected {}.", inst, other, pick(TEMPORAL_HEDGES, rng)),
+                3 => format!("The {} between {} and {} has been officially classified as adversarial. Both organizations {} the classification.", pick(BUREAUCRATIC_NOUNS, rng), inst, other, pick(PROCEDURAL_VERBS, rng)),
+                _ => format!("{} issued a formal denunciation of {}, citing grievances accumulated over a period the {} described as 'sufficient.'", inst, other, pick(BUREAUCRATIC_NOUNS, rng)),
+            }
         }
         EventType::MemberJoined => {
-            let phrases = [
-                format!("{} was admitted to the ranks of {}. The initiation paperwork was filed.", agent, inst),
-                format!("{} formally joined {}. Their provisional membership period begins immediately.", agent, inst),
-                format!("{} accepted {} as a member, following a review process described as 'perfunctory.'", inst, agent),
-            ];
-            phrases[rng.gen_range(0..phrases.len())].clone()
+            match rng.gen_range(0..5) {
+                0 => format!("{} was admitted to the ranks of {}. The initiation {} was {}.", agent, inst, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                1 => format!("{} formally joined {}. Their provisional membership period begins immediately and extends {}.", agent, inst, pick(TEMPORAL_HEDGES, rng)),
+                2 => format!("{} accepted {} as a member, following a review process described as 'perfunctory.' The relevant {} was completed.", inst, agent, pick(BUREAUCRATIC_NOUNS, rng)),
+                3 => format!("The membership rolls of {} were updated to include {}, a development the {} {} without further comment.", inst, agent, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                _ => format!("{} applied for membership in {} and was accepted {}. The application cited {} as motivation.", agent, inst, pick(TEMPORAL_HEDGES, rng), pick(ABSURDIST_CAUSES, rng)),
+            }
         }
         EventType::MemberDeparted => {
-            let phrases = [
-                format!("{} departed from {}, citing reasons that were not entered into the record.", agent, inst),
-                format!("{} terminated their affiliation with {}. The exit interview was declined.", agent, inst),
-                format!("{} quietly removed itself from the membership rolls of {}.", agent, inst),
-            ];
-            phrases[rng.gen_range(0..phrases.len())].clone()
+            match rng.gen_range(0..5) {
+                0 => format!("{} departed from {}, citing reasons that were not entered into the record. The exit {} was declined.", agent, inst, pick(BUREAUCRATIC_NOUNS, rng)),
+                1 => format!("{} terminated their affiliation with {}. The {} was updated {}.", agent, inst, pick(BUREAUCRATIC_NOUNS, rng), pick(TEMPORAL_HEDGES, rng)),
+                2 => format!("{} quietly removed itself from the membership rolls of {}, a process the {} described as 'routine.'", agent, inst, pick(BUREAUCRATIC_NOUNS, rng)),
+                3 => format!("The departure of {} from {} was {} by the internal office. The cause was attributed to {}.", agent, inst, pick(PROCEDURAL_VERBS, rng), pick(ABSURDIST_CAUSES, rng)),
+                _ => format!("{} ceased to be affiliated with {}. The relevant {} was {} and the matter considered closed.", agent, inst, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+            }
         }
         EventType::MemberExpelled => {
-            let phrases = [
-                format!("{} was expelled from {} on grounds that the internal tribunal declined to make public.", agent, inst),
-                format!("{} formally removed {} from its membership for reasons described as 'procedural.'", inst, agent),
-                format!("{} was ejected from {}. The expulsion notice cited seventeen infractions, only three of which were specified.", agent, inst),
-            ];
-            phrases[rng.gen_range(0..phrases.len())].clone()
+            match rng.gen_range(0..5) {
+                0 => format!("{} was expelled from {} on grounds that the internal {} declined to make public.", agent, inst, pick(BUREAUCRATIC_NOUNS, rng)),
+                1 => format!("{} formally removed {} from its membership for reasons described as 'procedural.' The expulsion {} cited {} infractions.", inst, agent, pick(BUREAUCRATIC_NOUNS, rng), rng.gen_range(3..=17)),
+                2 => format!("{} was ejected from {}. The {} notice cited {}, only three of which were specified.", agent, inst, pick(BUREAUCRATIC_NOUNS, rng), pick(ABSURDIST_CAUSES, rng)),
+                3 => format!("The membership of {} in {} was revoked following a {} that the internal {} described as 'conclusive.'", agent, inst, pick(BUREAUCRATIC_NOUNS, rng), pick(BUREAUCRATIC_NOUNS, rng)),
+                _ => format!("{} {} the removal of {} from its rolls. The decision, once {}, was considered final {}.", inst, pick(PROCEDURAL_VERBS, rng), agent, pick(PROCEDURAL_VERBS, rng), pick(TEMPORAL_HEDGES, rng)),
+            }
         }
-        _ => format!("An institutional matter involving {} was resolved, or at least filed.", inst),
+        _ => format!("An institutional matter involving {} was resolved, or at least {}.", inst, pick(PROCEDURAL_VERBS, rng)),
     }
 }
 

@@ -40,7 +40,22 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
         .split(chunks[0]);
 
     draw_map_panel(frame, panels[0], sim);
-    draw_log_panel(frame, panels[1], sim);
+
+    // If following, split the right pane: top = log, bottom = chronicle
+    if sim.follow_target.is_some() {
+        let right_split = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(55),
+                Constraint::Percentage(45),
+            ])
+            .split(panels[1]);
+        draw_log_panel(frame, right_split[0], sim);
+        draw_follow_panel(frame, right_split[1], sim);
+    } else {
+        draw_log_panel(frame, panels[1], sim);
+    }
+
     draw_status_bar(frame, chunks[1], sim);
 
     // Draw overlays on top of the main layout
@@ -57,6 +72,15 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
         }
         Overlay::FactionList(selected) => {
             overlays::draw_faction_list(frame, sim, *selected);
+        }
+        Overlay::FollowSelect(selected) => {
+            overlays::draw_follow_select(frame, *selected);
+        }
+        Overlay::FollowAgentPick(selected) => {
+            overlays::draw_follow_agent_pick(frame, sim, *selected);
+        }
+        Overlay::FollowInstitutionPick(selected) => {
+            overlays::draw_follow_institution_pick(frame, sim, *selected);
         }
         Overlay::ExportMenu => {
             overlays::draw_export_menu(frame);
@@ -113,6 +137,15 @@ fn draw_map_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
             } else {
                 rendered[y][x] = ('*', color);
             }
+        }
+    }
+
+    // Highlight followed agent with a distinct marker
+    if let Some((fx, fy)) = sim.follow_agent_pos() {
+        let fx = fx as usize;
+        let fy = fy as usize;
+        if fy < MAP_HEIGHT && fx < MAP_WIDTH {
+            rendered[fy][fx] = ('X', Color::LightRed);
         }
     }
 
@@ -259,6 +292,93 @@ fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
 
     let log_widget = Paragraph::new(visible).block(block);
     frame.render_widget(log_widget, area);
+}
+
+fn draw_follow_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
+    let label = sim.follow_label().unwrap_or_else(|| "???".to_string());
+    let title = format!(" FOLLOWING: {} ", label);
+
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::LightRed));
+
+    let inner_height = area.height.saturating_sub(2) as usize;
+    let inner_width = area.width.saturating_sub(2) as usize;
+
+    let follow_events = sim.follow_events();
+
+    if follow_events.is_empty() || inner_height == 0 || inner_width == 0 {
+        let empty = Paragraph::new(" No events recorded for this entity.")
+            .style(Style::default().fg(Color::DarkGray))
+            .block(block);
+        frame.render_widget(empty, area);
+        return;
+    }
+
+    // Build wrapped lines from follow events (reuse same word-wrap logic)
+    let mut all_lines: Vec<Line> = Vec::new();
+    for event in &follow_events {
+        let tick_str = format!("[{}] ", event.tick);
+        let desc = &event.description;
+        let prefix_len = tick_str.len();
+        let body_width = inner_width.saturating_sub(prefix_len);
+        let text_color = event.event_type.log_color();
+
+        if body_width < 10 {
+            all_lines.push(Line::from(vec![
+                Span::styled(tick_str.clone(), Style::default().fg(Color::DarkGray)),
+                Span::styled(desc.clone(), Style::default().fg(text_color)),
+            ]));
+        } else {
+            let words: Vec<&str> = desc.split_whitespace().collect();
+            let mut line_buf = String::new();
+            let mut first = true;
+
+            for word in &words {
+                let space = if line_buf.is_empty() { 0 } else { 1 };
+                if line_buf.len() + space + word.len() > body_width && !line_buf.is_empty() {
+                    if first {
+                        all_lines.push(Line::from(vec![
+                            Span::styled(tick_str.clone(), Style::default().fg(Color::DarkGray)),
+                            Span::styled(line_buf.clone(), Style::default().fg(text_color)),
+                        ]));
+                        first = false;
+                    } else {
+                        let indent = " ".repeat(prefix_len);
+                        all_lines.push(Line::from(vec![
+                            Span::styled(indent, Style::default().fg(Color::DarkGray)),
+                            Span::styled(line_buf.clone(), Style::default().fg(text_color)),
+                        ]));
+                    }
+                    line_buf.clear();
+                }
+                if !line_buf.is_empty() { line_buf.push(' '); }
+                line_buf.push_str(word);
+            }
+            if !line_buf.is_empty() {
+                if first {
+                    all_lines.push(Line::from(vec![
+                        Span::styled(tick_str.clone(), Style::default().fg(Color::DarkGray)),
+                        Span::styled(line_buf, Style::default().fg(text_color)),
+                    ]));
+                } else {
+                    let indent = " ".repeat(prefix_len);
+                    all_lines.push(Line::from(vec![
+                        Span::styled(indent, Style::default().fg(Color::DarkGray)),
+                        Span::styled(line_buf, Style::default().fg(text_color)),
+                    ]));
+                }
+            }
+        }
+    }
+
+    let total = all_lines.len();
+    let start = total.saturating_sub(inner_height);
+    let visible: Vec<Line> = all_lines[start..].to_vec();
+
+    let widget = Paragraph::new(visible).block(block);
+    frame.render_widget(widget, area);
 }
 
 fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {

@@ -414,6 +414,9 @@ fn handle_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifiers) 
         Overlay::AgentSearch(_, _) => { handle_search_input(sim, key); InputResult::Continue }
         Overlay::AgentList(_) => { handle_agent_list_input(sim, key); InputResult::Continue }
         Overlay::FactionList(_) => { handle_faction_list_input(sim, key); InputResult::Continue }
+        Overlay::FollowSelect(_) => { handle_follow_select_input(sim, key); InputResult::Continue }
+        Overlay::FollowAgentPick(_) => { handle_follow_agent_pick_input(sim, key); InputResult::Continue }
+        Overlay::FollowInstitutionPick(_) => { handle_follow_institution_pick_input(sim, key); InputResult::Continue }
         Overlay::ExportMenu => { handle_export_menu_input(sim, key); InputResult::Continue }
         Overlay::ExportInput(_) => { handle_export_input(sim, key); InputResult::Continue }
         Overlay::SaveNameInput(_) => { handle_save_name_input(sim, key); InputResult::Continue }
@@ -460,6 +463,15 @@ fn handle_main_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifi
             sim.overlay = Overlay::AgentSearch(String::new(), 0);
         }
         KeyCode::Char('f') => {
+            // Toggle follow mode: if following, stop; otherwise open selection
+            if sim.follow_target.is_some() {
+                sim.follow_target = None;
+                sim.set_status_message("Stopped following.".to_string());
+            } else {
+                sim.overlay = Overlay::FollowSelect(0);
+            }
+        }
+        KeyCode::Char('F') => {
             sim.overlay = Overlay::FactionList(0);
         }
         KeyCode::Char('e') => {
@@ -600,7 +612,68 @@ fn handle_quit_confirm_input(sim: &mut SimState, key: KeyCode) -> InputResult {
     InputResult::Continue
 }
 
-/// Input handling for the faction list overlay (f key).
+/// Input handling for the follow select overlay (f key — pick agent or institution).
+fn handle_follow_select_input(sim: &mut SimState, key: KeyCode) {
+    let selected = if let Overlay::FollowSelect(sel) = sim.overlay { sel } else { return; };
+    match key {
+        KeyCode::Esc => { sim.overlay = Overlay::None; }
+        KeyCode::Up => { sim.overlay = Overlay::FollowSelect(selected.saturating_sub(1)); }
+        KeyCode::Down => { sim.overlay = Overlay::FollowSelect((selected + 1).min(1)); }
+        KeyCode::Enter => {
+            match selected {
+                0 => sim.overlay = Overlay::FollowAgentPick(0),
+                1 => sim.overlay = Overlay::FollowInstitutionPick(0),
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Input handling for the follow agent picker.
+fn handle_follow_agent_pick_input(sim: &mut SimState, key: KeyCode) {
+    let selected = if let Overlay::FollowAgentPick(sel) = sim.overlay { sel } else { return; };
+    let living = sim.living_agent_indices();
+    let max_idx = living.len().saturating_sub(1);
+    match key {
+        KeyCode::Esc => { sim.overlay = Overlay::FollowSelect(0); }
+        KeyCode::Up => { sim.overlay = Overlay::FollowAgentPick(selected.saturating_sub(1)); }
+        KeyCode::Down => { sim.overlay = Overlay::FollowAgentPick((selected + 1).min(max_idx)); }
+        KeyCode::Enter => {
+            if let Some(&idx) = living.get(selected) {
+                let agent_id = sim.agents[idx].id;
+                sim.follow_target = Some(crate::sim::FollowTarget::Agent(agent_id));
+                sim.overlay = Overlay::None;
+                sim.set_status_message(format!("Following {}.", sim.agents[idx].display_name()));
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Input handling for the follow institution picker.
+fn handle_follow_institution_pick_input(sim: &mut SimState, key: KeyCode) {
+    let selected = if let Overlay::FollowInstitutionPick(sel) = sim.overlay { sel } else { return; };
+    let living = sim.living_institution_indices();
+    let max_idx = living.len().saturating_sub(1);
+    match key {
+        KeyCode::Esc => { sim.overlay = Overlay::FollowSelect(1); }
+        KeyCode::Up => { sim.overlay = Overlay::FollowInstitutionPick(selected.saturating_sub(1)); }
+        KeyCode::Down => { sim.overlay = Overlay::FollowInstitutionPick((selected + 1).min(max_idx)); }
+        KeyCode::Enter => {
+            if let Some(&idx) = living.get(selected) {
+                let inst_id = sim.institutions[idx].id;
+                let inst_name = sim.institutions[idx].name.clone();
+                sim.follow_target = Some(crate::sim::FollowTarget::Institution(inst_id));
+                sim.overlay = Overlay::None;
+                sim.set_status_message(format!("Following {}.", inst_name));
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Input handling for the faction list overlay (Shift+F).
 fn handle_faction_list_input(sim: &mut SimState, key: KeyCode) {
     let selected = if let Overlay::FactionList(sel) = sim.overlay {
         sel

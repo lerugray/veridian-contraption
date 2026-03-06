@@ -418,6 +418,131 @@ pub fn draw_quit_confirm(frame: &mut Frame, selected: usize) {
     frame.render_widget(widget, area);
 }
 
+/// Draw the follow mode selection overlay (choose agent or institution).
+pub fn draw_follow_select(frame: &mut Frame, selected: usize) {
+    let area = centered_rect(40, 20, frame.area());
+    frame.render_widget(Clear, area);
+
+    let options = ["Follow an Agent", "Follow an Institution"];
+    let mut lines: Vec<Line> = vec![
+        Line::from(Span::styled(" Choose what to follow:", Style::default().fg(Color::White))),
+        Line::from(""),
+    ];
+
+    for (i, label) in options.iter().enumerate() {
+        let prefix = if i == selected { " > " } else { "   " };
+        let color = if i == selected { Color::Green } else { Color::Gray };
+        lines.push(Line::from(Span::styled(
+            format!("{}{}", prefix, label),
+            Style::default().fg(color),
+        )));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(" Up/Down + Enter | ESC=cancel", Style::default().fg(Color::DarkGray))));
+
+    let block = Block::default()
+        .title(" FOLLOW ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::LightRed));
+
+    let widget = Paragraph::new(lines).block(block);
+    frame.render_widget(widget, area);
+}
+
+/// Draw the follow agent picker overlay.
+pub fn draw_follow_agent_pick(frame: &mut Frame, sim: &SimState, selected: usize) {
+    let area = centered_rect(70, 60, frame.area());
+    frame.render_widget(Clear, area);
+
+    let living = sim.living_agent_indices();
+    let inner_height = area.height.saturating_sub(5) as usize;
+
+    let mut lines: Vec<Line> = vec![
+        Line::from(Span::styled(
+            format!(" Select agent to follow ({} living)", living.len()),
+            Style::default().fg(Color::White),
+        )),
+        Line::from(""),
+    ];
+
+    if !living.is_empty() {
+        let visible_count = inner_height.saturating_sub(4);
+        let scroll_start = if selected >= visible_count { selected - visible_count + 1 } else { 0 };
+        let scroll_end = (scroll_start + visible_count).min(living.len());
+
+        for i in scroll_start..scroll_end {
+            let idx = living[i];
+            let a = &sim.agents[idx];
+            let is_selected = i == selected;
+            let prefix = if is_selected { " > " } else { "   " };
+            let color = if is_selected { Color::Green } else { Color::Gray };
+            let loc = prose_gen::nearest_settlement_name(a.x, a.y, &sim.world);
+            lines.push(Line::from(Span::styled(
+                format!("{}{} — near {}", prefix, a.display_name(), loc),
+                Style::default().fg(color),
+            )));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(" Up/Down + Enter | ESC=cancel", Style::default().fg(Color::DarkGray))));
+
+    let block = Block::default()
+        .title(" FOLLOW AGENT ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::LightRed));
+
+    let widget = Paragraph::new(lines).block(block);
+    frame.render_widget(widget, area);
+}
+
+/// Draw the follow institution picker overlay.
+pub fn draw_follow_institution_pick(frame: &mut Frame, sim: &SimState, selected: usize) {
+    let area = centered_rect(65, 50, frame.area());
+    frame.render_widget(Clear, area);
+
+    let living = sim.living_institution_indices();
+    let inner_height = area.height.saturating_sub(5) as usize;
+
+    let mut lines: Vec<Line> = vec![
+        Line::from(Span::styled(
+            format!(" Select institution to follow ({} active)", living.len()),
+            Style::default().fg(Color::White),
+        )),
+        Line::from(""),
+    ];
+
+    if !living.is_empty() {
+        let visible_count = inner_height.saturating_sub(4);
+        let scroll_start = if selected >= visible_count { selected - visible_count + 1 } else { 0 };
+        let scroll_end = (scroll_start + visible_count).min(living.len());
+
+        for i in scroll_start..scroll_end {
+            let idx = living[i];
+            let inst = &sim.institutions[idx];
+            let is_selected = i == selected;
+            let prefix = if is_selected { " > " } else { "   " };
+            let color = if is_selected { Color::Green } else { Color::Gray };
+            lines.push(Line::from(Span::styled(
+                format!("{}{} ({})", prefix, inst.name, inst.kind.label()),
+                Style::default().fg(color),
+            )));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(" Up/Down + Enter | ESC=cancel", Style::default().fg(Color::DarkGray))));
+
+    let block = Block::default()
+        .title(" FOLLOW INSTITUTION ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::LightRed));
+
+    let widget = Paragraph::new(lines).block(block);
+    frame.render_widget(widget, area);
+}
+
 /// Draw the export menu overlay.
 pub fn draw_export_menu(frame: &mut Frame) {
     let area = centered_rect(40, 20, frame.area());

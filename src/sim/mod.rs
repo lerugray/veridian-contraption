@@ -46,6 +46,13 @@ impl SimSpeed {
     }
 }
 
+/// What entity the player is following (persistent, not an overlay).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum FollowTarget {
+    Agent(u64),
+    Institution(u64),
+}
+
 /// Which UI overlay is currently active (if any).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Overlay {
@@ -64,6 +71,12 @@ pub enum Overlay {
     SaveNameInput(String),
     /// Faction list overlay. (selected index)
     FactionList(usize),
+    /// Follow selection: pick agent or institution. (0=agent, 1=institution)
+    FollowSelect(usize),
+    /// Follow agent picker: browsable agent list. (selected index)
+    FollowAgentPick(usize),
+    /// Follow institution picker: browsable institution list. (selected index)
+    FollowInstitutionPick(usize),
     /// Quit confirm: return to main menu? (selected option: 0=save&return, 1=return, 2=cancel)
     QuitConfirm(usize),
 }
@@ -80,6 +93,8 @@ pub struct SaveData {
     pub save_name: Option<String>,
     /// Seed used to reconstruct the RNG on load.
     pub rng_state_seed: u64,
+    #[serde(default)]
+    pub follow_target: Option<FollowTarget>,
 }
 
 /// The complete simulation state.
@@ -107,6 +122,8 @@ pub struct SimState {
     pub last_autosave_tick: u64,
     /// Next institution ID to assign.
     pub next_institution_id: u64,
+    /// Currently followed entity (None = not following).
+    pub follow_target: Option<FollowTarget>,
 }
 
 impl SimState {
@@ -134,6 +151,7 @@ impl SimState {
             save_name: None,
             last_autosave_tick: 0,
             next_institution_id: next_id,
+            follow_target: None,
         }
     }
 
@@ -147,6 +165,7 @@ impl SimState {
             events: self.events.clone(),
             save_name: self.save_name.clone(),
             rng_state_seed: self.world.seed.wrapping_add(self.world.tick),
+            follow_target: self.follow_target.clone(),
         }
     }
 
@@ -169,6 +188,7 @@ impl SimState {
             save_name: data.save_name,
             last_autosave_tick: last_tick,
             next_institution_id: next_id,
+            follow_target: data.follow_target,
         }
     }
 
@@ -816,6 +836,47 @@ impl SimState {
             .filter(|(_, i)| i.alive)
             .map(|(idx, _)| idx)
             .collect()
+    }
+
+    /// Get the display name of the currently followed entity.
+    pub fn follow_label(&self) -> Option<String> {
+        match &self.follow_target {
+            Some(FollowTarget::Agent(id)) => {
+                self.agents.iter().find(|a| a.id == *id).map(|a| a.display_name())
+            }
+            Some(FollowTarget::Institution(id)) => {
+                self.institutions.iter().find(|i| i.id == *id).map(|i| i.name.clone())
+            }
+            None => None,
+        }
+    }
+
+    /// Get events relevant to the followed entity.
+    pub fn follow_events(&self) -> Vec<&Event> {
+        match &self.follow_target {
+            Some(FollowTarget::Agent(id)) => {
+                self.events.iter().filter(|e| e.subject_id == Some(*id)).collect()
+            }
+            Some(FollowTarget::Institution(id)) => {
+                // For institutions, show events that mention the institution name
+                if let Some(inst) = self.institutions.iter().find(|i| i.id == *id) {
+                    let name = &inst.name;
+                    self.events.iter().filter(|e| e.description.contains(name.as_str())).collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            None => Vec::new(),
+        }
+    }
+
+    /// Get the map position of a followed agent (if following an agent).
+    pub fn follow_agent_pos(&self) -> Option<(u32, u32)> {
+        if let Some(FollowTarget::Agent(id)) = &self.follow_target {
+            self.agents.iter().find(|a| a.id == *id && a.alive).map(|a| (a.x, a.y))
+        } else {
+            None
+        }
     }
 
     /// Get institution name by ID.
