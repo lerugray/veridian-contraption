@@ -21,6 +21,9 @@ use crate::sim::world::World;
 /// Maximum number of events kept in the log ring buffer.
 const MAX_EVENTS: usize = 200;
 
+/// Number of major events that must accumulate to trigger an era transition.
+pub const ERA_THRESHOLD: u32 = 15;
+
 /// Simulation speed settings.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum SimSpeed {
@@ -57,6 +60,18 @@ pub enum FollowTarget {
     Institution(u64),
 }
 
+/// A single entry in the World Annals — one completed era.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnnalsEntry {
+    pub era_name: String,
+    pub start_tick: u64,
+    pub end_tick: u64,
+    pub summary: String,
+    pub notable_agents: Vec<String>,
+    pub notable_institutions: Vec<String>,
+    pub defining_event: String,
+}
+
 /// Which UI overlay is currently active (if any).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Overlay {
@@ -89,6 +104,8 @@ pub enum Overlay {
     SiteView(usize, usize),
     /// World Assessment Report (in-game, via W key). (scroll offset)
     WorldReport(usize),
+    /// World Annals: scrollable era history. (scroll offset)
+    Annals(usize),
     /// Quit confirm: return to main menu? (selected option: 0=save&return, 1=return, 2=cancel)
     QuitConfirm(usize),
 }
@@ -111,6 +128,18 @@ pub struct SaveData {
     pub rng_state_seed: u64,
     #[serde(default)]
     pub follow_target: Option<FollowTarget>,
+    /// World Annals — completed eras.
+    #[serde(default)]
+    pub annals: Vec<AnnalsEntry>,
+    /// Name of the current (ongoing) era.
+    #[serde(default)]
+    pub current_era_name: Option<String>,
+    /// Tick when the current era began.
+    #[serde(default)]
+    pub current_era_start: u64,
+    /// Major event count accumulated in the current era.
+    #[serde(default)]
+    pub era_major_events: u32,
 }
 
 /// The complete simulation state.
@@ -144,11 +173,25 @@ pub struct SimState {
     pub follow_target: Option<FollowTarget>,
     /// Speed before pausing (so unpause restores the previous speed).
     pub pre_pause_speed: Option<SimSpeed>,
+    /// World Annals — completed eras.
+    pub annals: Vec<AnnalsEntry>,
+    /// Name of the current (ongoing) era.
+    pub current_era_name: String,
+    /// Tick when the current era began.
+    pub current_era_start: u64,
+    /// Major event count accumulated in the current era (triggers era transition at threshold).
+    pub era_major_events: u32,
+    /// Notable agent names collected during the current era (for annals summary).
+    era_notable_agents: Vec<String>,
+    /// Notable institution names collected during the current era.
+    era_notable_institutions: Vec<String>,
+    /// The most significant event description in the current era.
+    era_defining_event: Option<String>,
 }
 
 impl SimState {
     pub fn new(world: World, agents: Vec<Agent>, institutions: Vec<Institution>, sites: Vec<Site>, artifacts: Vec<Artifact>) -> Self {
-        let rng = StdRng::seed_from_u64(world.seed.wrapping_add(1));
+        let mut rng = StdRng::seed_from_u64(world.seed.wrapping_add(1));
         let next_id = institutions.iter().map(|i| i.id + 1).max().unwrap_or(0);
         let genesis = Event {
             tick: 0,
@@ -157,6 +200,7 @@ impl SimState {
             location: None,
             description: "The world stirs into being. Somewhere, a ledger is opened.".to_string(),
         };
+        let first_era = name_gen::generate_era_name(0, &mut rng);
         Self {
             world,
             agents,
@@ -175,6 +219,13 @@ impl SimState {
             next_institution_id: next_id,
             follow_target: None,
             pre_pause_speed: None,
+            annals: Vec::new(),
+            current_era_name: first_era,
+            current_era_start: 0,
+            era_major_events: 0,
+            era_notable_agents: Vec::new(),
+            era_notable_institutions: Vec::new(),
+            era_defining_event: None,
         }
     }
 
@@ -191,14 +242,20 @@ impl SimState {
             save_name: self.save_name.clone(),
             rng_state_seed: self.world.seed.wrapping_add(self.world.tick),
             follow_target: self.follow_target.clone(),
+            annals: self.annals.clone(),
+            current_era_name: Some(self.current_era_name.clone()),
+            current_era_start: self.current_era_start,
+            era_major_events: self.era_major_events,
         }
     }
 
     /// Reconstruct a SimState from loaded save data.
     pub fn from_save_data(data: SaveData) -> Self {
-        let rng = StdRng::seed_from_u64(data.rng_state_seed);
+        let mut rng = StdRng::seed_from_u64(data.rng_state_seed);
         let last_tick = data.world.tick;
         let next_id = data.institutions.iter().map(|i| i.id + 1).max().unwrap_or(0);
+        let era_name = data.current_era_name
+            .unwrap_or_else(|| name_gen::generate_era_name(data.annals.len() as u32, &mut rng));
         Self {
             world: data.world,
             agents: data.agents,
@@ -217,6 +274,13 @@ impl SimState {
             next_institution_id: next_id,
             follow_target: data.follow_target,
             pre_pause_speed: None,
+            annals: data.annals,
+            current_era_name: era_name,
+            current_era_start: data.current_era_start,
+            era_major_events: data.era_major_events,
+            era_notable_agents: Vec::new(),
+            era_notable_institutions: Vec::new(),
+            era_defining_event: None,
         }
     }
 
@@ -413,6 +477,58 @@ impl SimState {
             }
         }
 
+        // Track major events for era transitions
+        for event in &new_events {
+            let is_major = matches!(
+                event.event_type,
+                EventType::AgentDied
+                    | EventType::InstitutionFounded
+                    | EventType::InstitutionDissolved
+                    | EventType::SchismOccurred
+                    | EventType::AllianceFormed
+                    | EventType::RivalryDeclared
+                    | EventType::ArtifactAcquired
+                    | EventType::ArtifactDelivered
+                    | EventType::AdventurerDiedInSite
+            );
+            if is_major {
+                self.era_major_events += 1;
+                // Track notable agents
+                if let Some(agent_id) = event.subject_id {
+                    if let Some(agent) = self.agents.iter().find(|a| a.id == agent_id) {
+                        let name = agent.display_name();
+                        if !self.era_notable_agents.contains(&name) && self.era_notable_agents.len() < 8 {
+                            self.era_notable_agents.push(name);
+                        }
+                    }
+                }
+                // Track notable institutions (from institutional events)
+                if matches!(
+                    event.event_type,
+                    EventType::InstitutionFounded
+                        | EventType::InstitutionDissolved
+                        | EventType::SchismOccurred
+                ) {
+                    // Extract institution name from description (first capitalized phrase)
+                    for inst in &self.institutions {
+                        if event.description.contains(&inst.name)
+                            && !self.era_notable_institutions.contains(&inst.name)
+                            && self.era_notable_institutions.len() < 6
+                        {
+                            self.era_notable_institutions.push(inst.name.clone());
+                        }
+                    }
+                }
+                // Track defining event (the most recent major event wins)
+                self.era_defining_event = Some(event.description.clone());
+            }
+        }
+
+        // Check for era transition
+        if self.era_major_events >= ERA_THRESHOLD {
+            self.transition_era(tick);
+        }
+
         // Add new events to the log
         self.events.extend(new_events);
 
@@ -425,6 +541,104 @@ impl SimState {
                 *frozen = frozen.saturating_sub(drain_count);
             }
         }
+    }
+
+    /// Transition to a new era — close the current era and begin the next.
+    fn transition_era(&mut self, tick: u64) {
+        let defining = self.era_defining_event.take()
+            .unwrap_or_else(|| "No single event could be identified as definitive.".to_string());
+
+        // Generate a summary paragraph for the completed era
+        let summary = self.generate_era_summary(tick, &defining);
+
+        let entry = AnnalsEntry {
+            era_name: self.current_era_name.clone(),
+            start_tick: self.current_era_start,
+            end_tick: tick,
+            summary,
+            notable_agents: self.era_notable_agents.clone(),
+            notable_institutions: self.era_notable_institutions.clone(),
+            defining_event: defining,
+        };
+
+        self.annals.push(entry);
+
+        // Begin the next era
+        let era_number = self.annals.len() as u32;
+        self.current_era_name = name_gen::generate_era_name(era_number, &mut self.rng);
+        self.current_era_start = tick;
+        self.era_major_events = 0;
+        self.era_notable_agents.clear();
+        self.era_notable_institutions.clear();
+        self.era_defining_event = None;
+
+        // Log the era transition
+        let era_event = Event {
+            tick,
+            event_type: EventType::CensusReport, // closest existing type for world-level
+            subject_id: None,
+            location: None,
+            description: format!(
+                "A new era has been declared. The records office has filed the previous period under '{}' and opened a fresh ledger for '{}'.",
+                self.annals.last().map(|a| a.era_name.as_str()).unwrap_or("Unknown"),
+                self.current_era_name
+            ),
+        };
+        self.events.push(era_event);
+    }
+
+    /// Generate a prose summary for a completed era.
+    fn generate_era_summary(&mut self, end_tick: u64, _defining_event: &str) -> String {
+        let alive = self.agents.iter().filter(|a| a.alive).count();
+        let dead = self.agents.iter().filter(|a| !a.alive).count();
+        let living_inst = self.institutions.iter().filter(|i| i.alive).count();
+
+        let duration = end_tick - self.current_era_start;
+
+        let openings = [
+            "This era spanned",
+            "The period encompassed",
+            "Across the breadth of",
+            "Over the course of",
+            "During the",
+        ];
+        let opening = openings[self.rng.gen_range(0..openings.len())];
+
+        let closings = [
+            "The registrar noted the transition without comment.",
+            "The new era was declared with the customary lack of ceremony.",
+            "Several filing cabinets were requisitioned for the archived records.",
+            "The transition was observed by those few who had been paying attention.",
+            "A minor clerical adjustment was made to the calendar.",
+        ];
+        let closing = closings[self.rng.gen_range(0..closings.len())];
+
+        let mut parts = Vec::new();
+        parts.push(format!(
+            "{} {} ticks of recorded history, during which {} souls were accounted for and {} were filed as concluded.",
+            opening, duration, alive + dead, dead
+        ));
+
+        if living_inst > 0 {
+            let inst_phrases = [
+                format!("{} institutions persisted through the period.", living_inst),
+                format!("The bureaucratic landscape supported {} active organizations.", living_inst),
+                format!("{} bodies of varying legitimacy remained operational.", living_inst),
+            ];
+            parts.push(inst_phrases[self.rng.gen_range(0..inst_phrases.len())].clone());
+        }
+
+        if !self.era_notable_agents.is_empty() {
+            let count = self.era_notable_agents.len().min(3);
+            let names: Vec<&str> = self.era_notable_agents.iter().take(count).map(|s| s.as_str()).collect();
+            parts.push(format!(
+                "Among those of note: {}.",
+                names.join(", ")
+            ));
+        }
+
+        parts.push(closing.to_string());
+        parts.join(" ")
     }
 
     /// Process institutional events for one tick.

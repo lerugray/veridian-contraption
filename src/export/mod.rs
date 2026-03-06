@@ -218,6 +218,65 @@ pub fn export_character_chronicle(sim: &SimState, prefix: &str) -> Result<String
     Ok(path.to_string_lossy().to_string())
 }
 
+/// Export the World Annals as a formatted historical document.
+pub fn export_world_annals(sim: &SimState, prefix: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let export_dir = PathBuf::from("exports");
+    fs::create_dir_all(&export_dir)?;
+
+    let timestamp = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let safe_prefix = sanitize_prefix(prefix, "annals");
+    let filename = format!("{}_{}.txt", safe_prefix, timestamp);
+    let path = export_dir.join(&filename);
+
+    let mut file = fs::File::create(&path)?;
+
+    writeln!(file, "VERIDIAN CONTRAPTION — WORLD ANNALS")?;
+    writeln!(file, "World: {}  |  Tick: {}", sim.world.name, sim.world.tick)?;
+    writeln!(file, "=====================================")?;
+    writeln!(file)?;
+
+    if sim.annals.is_empty() {
+        writeln!(file, "No completed eras have been recorded.")?;
+        writeln!(file)?;
+    }
+
+    for entry in &sim.annals {
+        writeln!(file, "═══════════════════════════════════════")?;
+        writeln!(file, "{}", entry.era_name)?;
+        writeln!(file, "Ticks {} – {}", entry.start_tick, entry.end_tick)?;
+        writeln!(file, "═══════════════════════════════════════")?;
+        writeln!(file)?;
+        writeln!(file, "{}", entry.summary)?;
+        writeln!(file)?;
+        if !entry.notable_agents.is_empty() {
+            writeln!(file, "Notable figures: {}", entry.notable_agents.join(", "))?;
+        }
+        if !entry.notable_institutions.is_empty() {
+            writeln!(file, "Notable institutions: {}", entry.notable_institutions.join(", "))?;
+        }
+        writeln!(file, "Defining event: {}", entry.defining_event)?;
+        writeln!(file)?;
+    }
+
+    writeln!(file, "═══════════════════════════════════════")?;
+    writeln!(file, "{} (tick {}–present)  CURRENT ERA (ongoing)", sim.current_era_name, sim.current_era_start)?;
+    writeln!(file, "═══════════════════════════════════════")?;
+    writeln!(file)?;
+
+    let alive = sim.agents.iter().filter(|a| a.alive).count();
+    let living_inst = sim.institutions.iter().filter(|i| i.alive).count();
+    writeln!(file, "Population: {}  |  Institutions: {}  |  Major events this era: {}",
+        alive, living_inst, sim.era_major_events)?;
+    writeln!(file)?;
+    writeln!(file, "--- End of World Annals ({} completed eras) ---", sim.annals.len())?;
+
+    Ok(path.to_string_lossy().to_string())
+}
+
 /// Sanitize a user-provided prefix for use as a filename component.
 fn sanitize_prefix(prefix: &str, default: &str) -> String {
     let safe: String = prefix

@@ -455,3 +455,26 @@ pub fn generate_epithet(
         }
     }
 }
+
+/// Generate an era name for the World Annals.
+pub fn generate_era_name(era_number: u32, rng: &mut StdRng) -> String {
+    let ordinals = [
+        "First", "Second", "Third", "Fourth", "Fifth",
+        "Sixth", "Seventh", "Eighth", "Ninth", "Tenth",
+        "Eleventh", "Twelfth", "Thirteenth", "Fourteenth", "Fifteenth",
+    ];
+    let ordinal = if (era_number as usize) < ordinals.len() {
+        ordinals[era_number as usize].to_string()
+    } else {
+        format!("{}th", era_number + 1)
+    };
+
+    let era_nouns = [
+        "Dispensation", "Reckoning", "Arrangement", "Accounting",
+        "Adjustment", "Tenure", "Administration", "Catalogue",
+        "Enumeration", "Correspondence", "Proceeding", "Interval",
+        "Incumbency", "Ledger", "Codification", "Registry",
+    ];
+    let noun = era_nouns[rng.gen_range(0..era_nouns.len())];
+    format!("The {} {}", ordinal, noun)
+}

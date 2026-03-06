@@ -736,10 +736,11 @@ pub fn draw_help(frame: &mut Frame) {
         Line::from(vec![Span::styled("   F        ", key_style), Span::styled("View faction list", desc_style)]),
         Line::from(vec![Span::styled("   s        ", key_style), Span::styled("Browse sites (dungeons, ruins, etc.)", desc_style)]),
         Line::from(vec![Span::styled("   W        ", key_style), Span::styled("World Assessment Report", desc_style)]),
+        Line::from(vec![Span::styled("   a        ", key_style), Span::styled("World Annals (era history)", desc_style)]),
         Line::from(vec![Span::styled("   PgUp/Dn  ", key_style), Span::styled("Scroll log", desc_style)]),
         Line::from(""),
         Line::from(Span::styled(" EXPORT & SAVE", header_style)),
-        Line::from(vec![Span::styled("   e        ", key_style), Span::styled("Export menu (log, factions, chronicles)", desc_style)]),
+        Line::from(vec![Span::styled("   e        ", key_style), Span::styled("Export menu (log, factions, chronicles, annals)", desc_style)]),
         Line::from(vec![Span::styled("   Ctrl+S   ", key_style), Span::styled("Save world", desc_style)]),
         Line::from(""),
         Line::from(Span::styled(" OTHER", header_style)),
@@ -758,9 +759,112 @@ pub fn draw_help(frame: &mut Frame) {
     frame.render_widget(widget, area);
 }
 
+/// Draw the World Annals overlay.
+pub fn draw_annals(frame: &mut Frame, sim: &SimState, scroll: usize) {
+    let area = centered_rect(75, 85, frame.area());
+    frame.render_widget(Clear, area);
+
+    let header_style = Style::default().fg(Color::Yellow);
+    let era_style = Style::default().fg(Color::White);
+    let body_style = Style::default().fg(Color::Gray);
+    let dim_style = Style::default().fg(Color::DarkGray);
+    let current_style = Style::default().fg(Color::Green);
+
+    let mut lines: Vec<Line> = Vec::new();
+    lines.push(Line::from(Span::styled(
+        format!(" WORLD ANNALS — {}", sim.world.name),
+        header_style,
+    )));
+    lines.push(Line::from(""));
+
+    if sim.annals.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  No completed eras yet.",
+            dim_style,
+        )));
+        lines.push(Line::from(""));
+    }
+
+    for entry in &sim.annals {
+        lines.push(Line::from(Span::styled(
+            format!("  {} (ticks {}–{})", entry.era_name, entry.start_tick, entry.end_tick),
+            era_style,
+        )));
+        lines.push(Line::from(""));
+
+        // Word-wrap summary
+        let inner_width = area.width.saturating_sub(6) as usize;
+        let words: Vec<&str> = entry.summary.split_whitespace().collect();
+        let mut line_buf = String::from("    ");
+        for word in &words {
+            if line_buf.len() + 1 + word.len() > inner_width && line_buf.len() > 4 {
+                lines.push(Line::from(Span::styled(line_buf.clone(), body_style)));
+                line_buf = String::from("    ");
+            }
+            if line_buf.len() > 4 { line_buf.push(' '); }
+            line_buf.push_str(word);
+        }
+        if line_buf.len() > 4 {
+            lines.push(Line::from(Span::styled(line_buf, body_style)));
+        }
+        lines.push(Line::from(""));
+
+        if !entry.notable_agents.is_empty() {
+            lines.push(Line::from(Span::styled(
+                format!("    Notable: {}", entry.notable_agents.join(", ")),
+                dim_style,
+            )));
+        }
+        if !entry.notable_institutions.is_empty() {
+            lines.push(Line::from(Span::styled(
+                format!("    Institutions: {}", entry.notable_institutions.join(", ")),
+                dim_style,
+            )));
+        }
+        lines.push(Line::from(Span::styled(
+            "  ─────────────────────────────────────────",
+            dim_style,
+        )));
+        lines.push(Line::from(""));
+    }
+
+    // Current era (ongoing)
+    lines.push(Line::from(Span::styled(
+        format!("  {} (tick {}–present)  CURRENT ERA", sim.current_era_name, sim.current_era_start),
+        current_style,
+    )));
+    let alive = sim.agents.iter().filter(|a| a.alive).count();
+    let living_inst = sim.institutions.iter().filter(|i| i.alive).count();
+    lines.push(Line::from(Span::styled(
+        format!("    Major events: {} / {}  |  Pop: {}  |  Institutions: {}",
+            sim.era_major_events, crate::sim::ERA_THRESHOLD, alive, living_inst),
+        dim_style,
+    )));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " ESC to close  |  Up/Down/PgUp/PgDn to scroll",
+        dim_style,
+    )));
+
+    // Apply scroll
+    let inner_h = area.height.saturating_sub(2) as usize;
+    let max_scroll = lines.len().saturating_sub(inner_h);
+    let effective_scroll = scroll.min(max_scroll);
+    let end = (effective_scroll + inner_h).min(lines.len());
+    let visible: Vec<Line> = lines[effective_scroll..end].to_vec();
+
+    let block = Block::default()
+        .title(" WORLD ANNALS ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow));
+
+    let widget = Paragraph::new(visible).block(block);
+    frame.render_widget(widget, area);
+}
+
 /// Draw the export menu overlay.
 pub fn draw_export_menu(frame: &mut Frame) {
-    let area = centered_rect(40, 20, frame.area());
+    let area = centered_rect(45, 25, frame.area());
     frame.render_widget(Clear, area);
 
     let lines = vec![
@@ -769,6 +873,7 @@ pub fn draw_export_menu(frame: &mut Frame) {
         Line::from(Span::styled(" [1] Export Live Log", Style::default().fg(Color::Gray))),
         Line::from(Span::styled(" [2] Export Faction Record", Style::default().fg(Color::Gray))),
         Line::from(Span::styled(" [3] Export Character Chronicles", Style::default().fg(Color::Gray))),
+        Line::from(Span::styled(" [4] Export World Annals", Style::default().fg(Color::Gray))),
         Line::from(""),
         Line::from(Span::styled(" ESC to cancel", Style::default().fg(Color::DarkGray))),
     ];

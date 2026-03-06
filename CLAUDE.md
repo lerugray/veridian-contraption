@@ -100,9 +100,9 @@ prose, and runs continuously whether the player interacts or not.
 
 ```
 CURRENT PHASE: Phase 4 IN PROGRESS
-LAST COMPLETED PROMPT: 4-A — Parametric World Generation
+LAST COMPLETED PROMPT: 4-B — World Annals & Session Persistence
 STATUS: Working
-NEXT TASK: Phase 4-B — Multiple Worlds / Session Management
+NEXT TASK: Phase 4-C — Multiple Worlds / Session Management
 ```
 
 ---

@@ -100,6 +100,9 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
         Overlay::SiteView(_, _) => {
             // Site view replaces the map panel, handled above — no popup overlay needed
         }
+        Overlay::Annals(scroll) => {
+            overlays::draw_annals(frame, sim, *scroll);
+        }
         Overlay::ExportMenu => {
             overlays::draw_export_menu(frame);
         }
@@ -527,7 +530,7 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
     };
 
     let status_text = format!(
-        " {}  |  Tick {}  |  {}  |  Pop: {}  |  [{}]{}  |  1/5/2=spd s=sites W=world ?=help",
+        " {}  |  Tick {}  |  {}  |  Pop: {}  |  [{}]{}  |  1/5/2=spd a=annals s=sites ?=help",
         sim.world.name, sim.world.tick, sim.speed.label(), alive_count, save_label, site_hint,
     );
     let status = Paragraph::new(status_text)

@@ -137,7 +137,7 @@ fn run_app(
                 if s.world.tick > 0 && s.world.tick - s.last_autosave_tick >= 500 {
                     s.last_autosave_tick = s.world.tick;
                     match export::save_world(s, "autosave") {
-                        Ok(_) => s.set_status_message("~ autosaved".to_string()),
+                        Ok(_) => { s.status_message = Some(("~ autosaved".to_string(), 40)); }
                         Err(e) => s.set_status_message(format!("Autosave failed: {}", e)),
                     }
                 }
@@ -492,6 +492,7 @@ fn handle_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifiers) 
         Overlay::FollowSelect(_) => { handle_follow_select_input(sim, key); InputResult::Continue }
         Overlay::FollowAgentPick(_) => { handle_follow_agent_pick_input(sim, key); InputResult::Continue }
         Overlay::FollowInstitutionPick(_) => { handle_follow_institution_pick_input(sim, key); InputResult::Continue }
+        Overlay::Annals(_) => { handle_annals_input(sim, key); InputResult::Continue }
         Overlay::ExportMenu => { handle_export_menu_input(sim, key); InputResult::Continue }
         Overlay::ExportInput(_) => { handle_export_input(sim, key); InputResult::Continue }
         Overlay::SaveNameInput(_) => { handle_save_name_input(sim, key); InputResult::Continue }
@@ -560,6 +561,9 @@ fn handle_main_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifi
         }
         KeyCode::Char('W') => {
             sim.overlay = Overlay::WorldReport(0);
+        }
+        KeyCode::Char('a') => {
+            sim.overlay = Overlay::Annals(0);
         }
         KeyCode::Char('s') => {
             if !sim.sites.is_empty() {
@@ -860,6 +864,19 @@ fn handle_faction_list_input(sim: &mut SimState, key: KeyCode) {
     }
 }
 
+/// Input handling for the World Annals overlay.
+fn handle_annals_input(sim: &mut SimState, key: KeyCode) {
+    let scroll = if let Overlay::Annals(s) = sim.overlay { s } else { return; };
+    match key {
+        KeyCode::Esc => { sim.overlay = Overlay::None; }
+        KeyCode::Up => { sim.overlay = Overlay::Annals(scroll.saturating_sub(1)); }
+        KeyCode::Down => { sim.overlay = Overlay::Annals(scroll + 1); }
+        KeyCode::PageUp => { sim.overlay = Overlay::Annals(scroll.saturating_sub(10)); }
+        KeyCode::PageDown => { sim.overlay = Overlay::Annals(scroll + 10); }
+        _ => {}
+    }
+}
+
 /// Input handling for the export menu.
 fn handle_export_menu_input(sim: &mut SimState, key: KeyCode) {
     match key {
@@ -876,6 +893,13 @@ fn handle_export_menu_input(sim: &mut SimState, key: KeyCode) {
         }
         KeyCode::Char('3') => {
             match export::export_character_chronicle(sim, "chronicles") {
+                Ok(path) => sim.set_status_message(format!("Exported to {}", path)),
+                Err(e) => sim.set_status_message(format!("Export failed: {}", e)),
+            }
+            sim.overlay = Overlay::None;
+        }
+        KeyCode::Char('4') => {
+            match export::export_world_annals(sim, "annals") {
                 Ok(path) => sim.set_status_message(format!("Exported to {}", path)),
                 Err(e) => sim.set_status_message(format!("Export failed: {}", e)),
             }
