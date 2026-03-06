@@ -6,7 +6,10 @@
       "Bash(PATH=\"/c/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64:$PATH\" cargo build:*)",
       "Bash(cmd.exe:*)",
       "Bash(cargo build:*)",
-      "Bash(cargo run:*)"
+      "Bash(cargo run:*)",
+      "Bash(cargo test:*)",
+      "Bash(wc:*)",
+      "Bash(find src:*)"
     ]
   }
 }

@@ -41,9 +41,9 @@ const CLINICAL_NOUNS: &[&str] = &[
 
 // --- Lyrical ---
 const LYRICAL_VERBS: &[&str] = &[
-    "whispered", "drifted", "lingered", "unfolded", "stirred",
+    "whispered", "murmured", "held", "unfolded", "stirred",
     "settled", "scattered", "gathered", "received",
-    "absorbed", "noted", "traced", "woven",
+    "absorbed", "noted", "traced", "folded",
     "carried", "dissolved",
 ];
 
@@ -523,7 +523,7 @@ fn gen_weather(loc: &str, reg: NarrativeRegister, w: f32, rng: &mut StdRng) -> S
         2 => format!("An amber haze settled over {}. The phenomenon was attributed to {} and logged under the existing {} for atmospheric irregularities.", loc, pick_cause(w, rng), pick_noun(reg, rng)),
         3 => format!("{} experienced conditions that one official termed 'the usual arrangement.' A {} was opened {}, though expectations for its conclusion are modest.", loc, pick_noun(reg, rng), pick(TEMPORAL_HEDGES, rng)),
         4 => format!("A persistent low wind in the vicinity of {} prompted the filing of a {} with the regional office. The {} was {} but not acted upon.", loc, pick_noun(reg, rng), pick_noun(reg, rng), pick_verb(reg, rng)),
-        5 => format!("The area surrounding {} was punctuated by brief intervals of something not quite rain. Prevailing atmospheric indifference was {} as the cause.", loc, pick_verb(reg, rng)),
+        5 => format!("The area surrounding {} was punctuated by brief intervals of something not quite rain. The cause was {} by the local office as 'atmospheric indifference.'", loc, pick_verb(reg, rng)),
         6 => match reg {
             NarrativeRegister::Ominous => format!("The sky above {} changed. It did not change back.", loc),
             NarrativeRegister::Lyrical => format!("Weather visited {} in the manner of an old acquaintance — familiar, unwelcome, and impossible to turn away at the door.", loc),

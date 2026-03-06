@@ -713,7 +713,7 @@ pub fn draw_site_list(frame: &mut Frame, sim: &SimState, selected: usize) {
 
 /// Draw the help overlay showing all keybindings.
 pub fn draw_help(frame: &mut Frame) {
-    let area = centered_rect(58, 80, frame.area());
+    let area = centered_rect(58, 95, frame.area());
     frame.render_widget(Clear, area);
 
     let key_style = Style::default().fg(Color::Rgb(220, 190, 100));
@@ -878,7 +878,7 @@ pub fn draw_annals(frame: &mut Frame, sim: &SimState, scroll: usize) {
 
 /// Draw the export menu overlay.
 pub fn draw_export_menu(frame: &mut Frame) {
-    let area = centered_rect(45, 25, frame.area());
+    let area = centered_rect(45, 40, frame.area());
     frame.render_widget(Clear, area);
 
     let lines = vec![
