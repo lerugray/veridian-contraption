@@ -49,8 +49,11 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
         Overlay::InspectAgent(idx) => {
             overlays::draw_inspect_overlay(frame, sim, *idx);
         }
-        Overlay::AgentSearch(query) => {
-            overlays::draw_search_overlay(frame, sim, query);
+        Overlay::AgentSearch(query, selected) => {
+            overlays::draw_search_overlay(frame, sim, query, *selected);
+        }
+        Overlay::AgentList(selected) => {
+            overlays::draw_agent_list(frame, sim, *selected);
         }
         Overlay::ExportMenu => {
             overlays::draw_export_menu(frame);
@@ -60,6 +63,9 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
         }
         Overlay::SaveNameInput(input) => {
             overlays::draw_save_name_input(frame, input);
+        }
+        Overlay::QuitConfirm(selected) => {
+            overlays::draw_quit_confirm(frame, *selected);
         }
     }
 }
@@ -174,8 +180,9 @@ fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
         return;
     }
 
-    // Slice events: log_scroll is the number of events to skip from the end.
-    let end_event = sim.events.len().saturating_sub(sim.log_scroll);
+    // Slice events: use frozen view length if scrolled, otherwise live length.
+    let pool_len = sim.log_frozen_len.unwrap_or(sim.events.len());
+    let end_event = pool_len.saturating_sub(sim.log_scroll).min(sim.events.len());
     let visible_events = &sim.events[..end_event];
 
     // Build formatted lines from the visible events (events may wrap to multiple display lines).
@@ -265,7 +272,7 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
         .as_deref()
         .unwrap_or("unsaved");
     let status_text = format!(
-        " {}  |  Tick {}  |  {}  |  Pop: {}  |  [{}]  |  SPACE=pause .=step 1/5/2=speed i=inspect e=export ^S=save q=quit",
+        " {}  |  Tick {}  |  {}  |  Pop: {}  |  [{}]  |  SPACE .=step 1/5/2=spd Tab=agents i=find e=export ^S=save q=menu",
         sim.world.name, sim.world.tick, sim.speed.label(), alive_count, save_label,
     );
     let status = Paragraph::new(status_text)

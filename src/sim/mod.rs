@@ -49,14 +49,18 @@ pub enum Overlay {
     None,
     /// Inspecting a specific agent by index into the agents vec.
     InspectAgent(usize),
-    /// Agent search: player is typing a name to find.
-    AgentSearch(String),
+    /// Agent search: player is typing a name to find. (query, selected match index)
+    AgentSearch(String, usize),
+    /// Browsable list of all living agents. (selected index into filtered list)
+    AgentList(usize),
     /// Export menu.
     ExportMenu,
     /// Export: player is typing a filename prefix.
     ExportInput(String),
     /// Save: player is typing a save name (Ctrl+S).
     SaveNameInput(String),
+    /// Quit confirm: return to main menu? (selected option: 0=save&return, 1=return, 2=cancel)
+    QuitConfirm(usize),
 }
 
 /// Serializable snapshot of the simulation state for save/load.
@@ -80,6 +84,9 @@ pub struct SimState {
     pub events: Vec<Event>,
     /// Scroll offset for the log pane (0 = pinned to bottom / auto-scroll).
     pub log_scroll: usize,
+    /// When the player scrolls up, freeze the view at this event count.
+    /// None = live mode (showing latest events).
+    pub log_frozen_len: Option<usize>,
     /// Current UI overlay.
     pub overlay: Overlay,
     /// Temporary status message shown in the status bar (clears after a few frames).
@@ -108,6 +115,7 @@ impl SimState {
             speed: SimSpeed::Paused,
             events: vec![genesis],
             log_scroll: 0,
+            log_frozen_len: None,
             overlay: Overlay::None,
             status_message: None,
             rng,
@@ -138,6 +146,7 @@ impl SimState {
             speed: data.speed,
             events: data.events,
             log_scroll: 0,
+            log_frozen_len: None,
             overlay: Overlay::None,
             status_message: None,
             rng,
@@ -255,13 +264,6 @@ impl SimState {
             });
         }
 
-        // If scrolled up, push scroll offset by the number of new events
-        // so the player's view stays on the same entries.
-        let new_count = new_events.len();
-        if self.log_scroll > 0 {
-            self.log_scroll += new_count;
-        }
-
         // Add new events to the log
         self.events.extend(new_events);
 
@@ -269,8 +271,9 @@ impl SimState {
         if self.events.len() > MAX_EVENTS {
             let drain_count = self.events.len() - MAX_EVENTS;
             self.events.drain(..drain_count);
-            if self.log_scroll > 0 {
-                self.log_scroll = self.log_scroll.saturating_sub(drain_count);
+            // Adjust frozen view anchor so it still points at the same events
+            if let Some(ref mut frozen) = self.log_frozen_len {
+                *frozen = frozen.saturating_sub(drain_count);
             }
         }
     }
@@ -308,14 +311,22 @@ impl SimState {
     }
 
     /// Scroll the log up by a given number of lines.
+    /// On first scroll, freezes the view so new events don't affect it.
     pub fn scroll_log_up(&mut self, amount: usize) {
-        let max_scroll = self.events.len().saturating_sub(1);
+        if self.log_frozen_len.is_none() {
+            self.log_frozen_len = Some(self.events.len());
+        }
+        let pool = self.log_frozen_len.unwrap();
+        let max_scroll = pool.saturating_sub(1);
         self.log_scroll = (self.log_scroll + amount).min(max_scroll);
     }
 
-    /// Scroll the log down (toward present). 0 = pinned to bottom.
+    /// Scroll the log down (toward present). When scroll reaches 0, resume live mode.
     pub fn scroll_log_down(&mut self, amount: usize) {
         self.log_scroll = self.log_scroll.saturating_sub(amount);
+        if self.log_scroll == 0 {
+            self.log_frozen_len = None;
+        }
     }
 
     /// Set a temporary status bar message (shown for ~90 frames / ~3 seconds).
@@ -331,6 +342,18 @@ impl SimState {
             .filter(|(_, a)| a.alive && a.x == x && a.y == y)
             .map(|(i, _)| i)
             .collect()
+    }
+
+    /// Get indices of all living agents, sorted by name.
+    pub fn living_agent_indices(&self) -> Vec<usize> {
+        let mut indices: Vec<usize> = self.agents
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| a.alive)
+            .map(|(i, _)| i)
+            .collect();
+        indices.sort_by(|&a, &b| self.agents[a].name.cmp(&self.agents[b].name));
+        indices
     }
 
     /// Search agents by name (case-insensitive substring match).

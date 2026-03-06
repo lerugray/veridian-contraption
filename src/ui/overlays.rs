@@ -126,8 +126,8 @@ pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize)
     frame.render_widget(widget, area);
 }
 
-/// Draw the agent search overlay (typing a name to find).
-pub fn draw_search_overlay(frame: &mut Frame, sim: &SimState, query: &str) {
+/// Draw the agent search overlay with selectable match list.
+pub fn draw_search_overlay(frame: &mut Frame, sim: &SimState, query: &str, selected: usize) {
     let area = centered_rect(50, 50, frame.area());
     frame.render_widget(Clear, area);
 
@@ -142,29 +142,32 @@ pub fn draw_search_overlay(frame: &mut Frame, sim: &SimState, query: &str) {
         Line::from(""),
     ];
 
-    // Show matching results
+    // Show matching results with selection highlight
     if query.len() >= 2 {
         let matches = sim.search_agents(query);
         if matches.is_empty() {
             lines.push(Line::from(Span::styled(" No matching agents found.", Style::default().fg(Color::DarkGray))));
         } else {
-            let show = matches.len().min(10);
-            for &idx in &matches[..show] {
+            let show = matches.len().min(15);
+            for (i, &idx) in matches[..show].iter().enumerate() {
                 let a = &sim.agents[idx];
+                let is_selected = i == selected;
+                let prefix = if is_selected { " > " } else { "   " };
+                let color = if is_selected { Color::Green } else { Color::Gray };
                 lines.push(Line::from(Span::styled(
-                    format!("  {} (age {}, near {})", a.name, a.age / 365,
+                    format!("{}{} (age {}, near {})", prefix, a.name, a.age / 365,
                         prose_gen::nearest_settlement_name(a.x, a.y, &sim.world)),
-                    Style::default().fg(Color::Gray),
+                    Style::default().fg(color),
                 )));
             }
-            if matches.len() > 10 {
+            if matches.len() > 15 {
                 lines.push(Line::from(Span::styled(
-                    format!("  ... and {} more", matches.len() - 10),
+                    format!("  ... and {} more", matches.len() - 15),
                     Style::default().fg(Color::DarkGray),
                 )));
             }
             lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(" ENTER to inspect first match", Style::default().fg(Color::DarkGray))));
+            lines.push(Line::from(Span::styled(" Up/Down=select  ENTER=inspect", Style::default().fg(Color::DarkGray))));
         }
     } else {
         lines.push(Line::from(Span::styled(" Type at least 2 characters...", Style::default().fg(Color::DarkGray))));
@@ -176,6 +179,99 @@ pub fn draw_search_overlay(frame: &mut Frame, sim: &SimState, query: &str) {
         .title(" FIND AGENT ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Yellow));
+
+    let widget = Paragraph::new(lines).block(block);
+    frame.render_widget(widget, area);
+}
+
+/// Draw the agent list overlay (Tab key — browsable list of all living agents).
+pub fn draw_agent_list(frame: &mut Frame, sim: &SimState, selected: usize) {
+    let area = centered_rect(55, 70, frame.area());
+    frame.render_widget(Clear, area);
+
+    let living = sim.living_agent_indices();
+    let inner_height = area.height.saturating_sub(5) as usize; // borders + header + footer
+
+    let mut lines: Vec<Line> = vec![
+        Line::from(Span::styled(
+            format!(" {} living agents", living.len()),
+            Style::default().fg(Color::White),
+        )),
+        Line::from(""),
+    ];
+
+    if living.is_empty() {
+        lines.push(Line::from(Span::styled(" No living agents.", Style::default().fg(Color::DarkGray))));
+    } else {
+        // Derive scroll window from selected position
+        let visible_count = inner_height.saturating_sub(4); // account for header/footer lines
+        let scroll_start = if selected >= visible_count {
+            selected - visible_count + 1
+        } else {
+            0
+        };
+        let scroll_end = (scroll_start + visible_count).min(living.len());
+
+        for i in scroll_start..scroll_end {
+            let idx = living[i];
+            let a = &sim.agents[idx];
+            let is_selected = i == selected;
+            let prefix = if is_selected { " > " } else { "   " };
+            let color = if is_selected { Color::Green } else { Color::Gray };
+            let loc = prose_gen::nearest_settlement_name(a.x, a.y, &sim.world);
+            lines.push(Line::from(Span::styled(
+                format!("{}{} — age {}, near {}", prefix, a.name, a.age / 365, loc),
+                Style::default().fg(color),
+            )));
+        }
+
+        if scroll_end < living.len() {
+            lines.push(Line::from(Span::styled(
+                format!("  ... {} more below", living.len() - scroll_end),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(" Up/Down=browse  ENTER=inspect  ESC=close", Style::default().fg(Color::DarkGray))));
+
+    let block = Block::default()
+        .title(" AGENTS ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Magenta));
+
+    let widget = Paragraph::new(lines).block(block);
+    frame.render_widget(widget, area);
+}
+
+/// Draw the quit confirmation overlay (Q key — return to menu prompt).
+pub fn draw_quit_confirm(frame: &mut Frame, selected: usize) {
+    let area = centered_rect(40, 25, frame.area());
+    frame.render_widget(Clear, area);
+
+    let options = ["Save and return to menu", "Return without saving", "Cancel"];
+    let mut lines: Vec<Line> = vec![
+        Line::from(Span::styled(" Return to main menu?", Style::default().fg(Color::White))),
+        Line::from(""),
+    ];
+
+    for (i, label) in options.iter().enumerate() {
+        let prefix = if i == selected { " > " } else { "   " };
+        let color = if i == selected { Color::Green } else { Color::Gray };
+        lines.push(Line::from(Span::styled(
+            format!("{}{}", prefix, label),
+            Style::default().fg(color),
+        )));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(" Up/Down + Enter to select", Style::default().fg(Color::DarkGray))));
+
+    let block = Block::default()
+        .title(" QUIT ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Red));
 
     let widget = Paragraph::new(lines).block(block);
     frame.render_widget(widget, area);

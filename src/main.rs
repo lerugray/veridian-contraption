@@ -142,6 +142,13 @@ fn run_app(
                     match handle_input(&mut mode, &mut sim, key.code, key.modifiers) {
                         InputResult::Continue => {}
                         InputResult::Quit => return Ok(()),
+                        InputResult::ReturnToMenu => {
+                            sim = None;
+                            mode = AppMode::MainMenu {
+                                selected: 0,
+                                has_autosave: export::has_autosave(),
+                            };
+                        }
                     }
                 }
             }
@@ -152,6 +159,7 @@ fn run_app(
 enum InputResult {
     Continue,
     Quit,
+    ReturnToMenu,
 }
 
 /// Route input based on the current app mode.
@@ -403,10 +411,12 @@ fn handle_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifiers) 
     match &sim.overlay {
         Overlay::None => handle_main_game_input(sim, key, modifiers),
         Overlay::InspectAgent(_) => { handle_inspect_input(sim, key); InputResult::Continue }
-        Overlay::AgentSearch(_) => { handle_search_input(sim, key); InputResult::Continue }
+        Overlay::AgentSearch(_, _) => { handle_search_input(sim, key); InputResult::Continue }
+        Overlay::AgentList(_) => { handle_agent_list_input(sim, key); InputResult::Continue }
         Overlay::ExportMenu => { handle_export_menu_input(sim, key); InputResult::Continue }
         Overlay::ExportInput(_) => { handle_export_input(sim, key); InputResult::Continue }
         Overlay::SaveNameInput(_) => { handle_save_name_input(sim, key); InputResult::Continue }
+        Overlay::QuitConfirm(_) => handle_quit_confirm_input(sim, key),
     }
 }
 
@@ -421,7 +431,12 @@ fn handle_main_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifi
 
     match key {
         KeyCode::Char('q') => {
-            return InputResult::Quit;
+            sim.overlay = Overlay::QuitConfirm(0);
+            return InputResult::Continue;
+        }
+        KeyCode::Tab => {
+            sim.overlay = Overlay::AgentList(0);
+            return InputResult::Continue;
         }
         KeyCode::Char(' ') => {
             sim.speed = if sim.speed == SimSpeed::Paused {
@@ -441,7 +456,7 @@ fn handle_main_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifi
         KeyCode::PageUp => sim.scroll_log_up(5),
         KeyCode::PageDown => sim.scroll_log_down(5),
         KeyCode::Char('i') => {
-            sim.overlay = Overlay::AgentSearch(String::new());
+            sim.overlay = Overlay::AgentSearch(String::new(), 0);
         }
         KeyCode::Char('e') => {
             sim.overlay = Overlay::ExportMenu;
@@ -459,10 +474,10 @@ fn handle_inspect_input(sim: &mut SimState, key: KeyCode) {
     }
 }
 
-/// Input handling for the agent search overlay.
+/// Input handling for the agent search overlay with selectable results.
 fn handle_search_input(sim: &mut SimState, key: KeyCode) {
-    let query = if let Overlay::AgentSearch(ref q) = sim.overlay {
-        q.clone()
+    let (query, selected) = if let Overlay::AgentSearch(ref q, sel) = sim.overlay {
+        (q.clone(), sel)
     } else {
         return;
     };
@@ -474,7 +489,7 @@ fn handle_search_input(sim: &mut SimState, key: KeyCode) {
         KeyCode::Enter => {
             if query.len() >= 2 {
                 let matches = sim.search_agents(&query);
-                if let Some(&idx) = matches.first() {
+                if let Some(&idx) = matches.get(selected) {
                     sim.overlay = Overlay::InspectAgent(idx);
                 } else {
                     sim.set_status_message("No matching agents found.".to_string());
@@ -482,18 +497,103 @@ fn handle_search_input(sim: &mut SimState, key: KeyCode) {
                 }
             }
         }
+        KeyCode::Up => {
+            let new_sel = selected.saturating_sub(1);
+            sim.overlay = Overlay::AgentSearch(query, new_sel);
+        }
+        KeyCode::Down => {
+            let matches = sim.search_agents(&query);
+            let max = matches.len().min(15).saturating_sub(1);
+            let new_sel = (selected + 1).min(max);
+            sim.overlay = Overlay::AgentSearch(query, new_sel);
+        }
         KeyCode::Backspace => {
             let mut q = query;
             q.pop();
-            sim.overlay = Overlay::AgentSearch(q);
+            sim.overlay = Overlay::AgentSearch(q, 0);
         }
         KeyCode::Char(c) => {
             let mut q = query;
             q.push(c);
-            sim.overlay = Overlay::AgentSearch(q);
+            sim.overlay = Overlay::AgentSearch(q, 0);
         }
         _ => {}
     }
+}
+
+/// Input handling for the agent list overlay (Tab).
+fn handle_agent_list_input(sim: &mut SimState, key: KeyCode) {
+    let selected = if let Overlay::AgentList(sel) = sim.overlay {
+        sel
+    } else {
+        return;
+    };
+
+    let living = sim.living_agent_indices();
+    let max_idx = living.len().saturating_sub(1);
+
+    match key {
+        KeyCode::Esc => {
+            sim.overlay = Overlay::None;
+        }
+        KeyCode::Up => {
+            sim.overlay = Overlay::AgentList(selected.saturating_sub(1));
+        }
+        KeyCode::Down => {
+            sim.overlay = Overlay::AgentList((selected + 1).min(max_idx));
+        }
+        KeyCode::Enter => {
+            if let Some(&idx) = living.get(selected) {
+                sim.overlay = Overlay::InspectAgent(idx);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Input handling for the quit confirm overlay (Q key).
+fn handle_quit_confirm_input(sim: &mut SimState, key: KeyCode) -> InputResult {
+    let selected = if let Overlay::QuitConfirm(sel) = sim.overlay {
+        sel
+    } else {
+        return InputResult::Continue;
+    };
+
+    match key {
+        KeyCode::Esc => {
+            sim.overlay = Overlay::None;
+        }
+        KeyCode::Up => {
+            sim.overlay = Overlay::QuitConfirm(selected.saturating_sub(1));
+        }
+        KeyCode::Down => {
+            sim.overlay = Overlay::QuitConfirm((selected + 1).min(2));
+        }
+        KeyCode::Enter => {
+            match selected {
+                0 => {
+                    // Save and return to menu
+                    let name = sim.save_name.clone()
+                        .unwrap_or_else(|| sim.world.name.clone());
+                    let _ = export::save_world(sim, &name);
+                    sim.overlay = Overlay::None;
+                    return InputResult::ReturnToMenu;
+                }
+                1 => {
+                    // Return without saving
+                    sim.overlay = Overlay::None;
+                    return InputResult::ReturnToMenu;
+                }
+                2 => {
+                    // Cancel
+                    sim.overlay = Overlay::None;
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+    InputResult::Continue
 }
 
 /// Input handling for the export menu.
