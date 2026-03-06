@@ -99,10 +99,10 @@ prose, and runs continuously whether the player interacts or not.
 **Update this section at the end of every session.**
 
 ```
-CURRENT PHASE: Phase 4 IN PROGRESS
-LAST COMPLETED PROMPT: 4-B — World Annals & Session Persistence
+CURRENT PHASE: Phase 4 COMPLETE
+LAST COMPLETED PROMPT: 4-C — Multiple Worlds / Session Management
 STATUS: Working
-NEXT TASK: Phase 4-C — Multiple Worlds / Session Management
+NEXT TASK: Phase 5 — Polish, Depth & Voice
 ```
 
 ---

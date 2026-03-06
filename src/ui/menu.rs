@@ -1,6 +1,6 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
@@ -217,18 +217,70 @@ pub fn draw_new_world(
     frame.render_widget(footer, chunks[7]);
 }
 
-/// Draw the Load World screen.
-pub fn draw_load_world(frame: &mut Frame, saves: &[SaveFileInfo], selected: usize) {
+/// Draw the "saves full" warning screen when trying to create a new world at 10 saves.
+pub fn draw_saves_full(frame: &mut Frame) {
     let area = frame.area();
     frame.render_widget(Clear, area);
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(15),
+            Constraint::Percentage(30),
+            Constraint::Length(8),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .split(area);
+
+    let content_area = centered_horizontal(56, chunks[1]);
+
+    let lines = vec![
+        Line::from(Span::styled(
+            "SAVE SLOTS FULL",
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "All 10 save slots are occupied.",
+            Style::default().fg(Color::Gray),
+        )),
+        Line::from(Span::styled(
+            "Please delete a saved world from Load World",
+            Style::default().fg(Color::Gray),
+        )),
+        Line::from(Span::styled(
+            "before creating a new one.",
+            Style::default().fg(Color::Gray),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Press ESC to return to the menu.",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+
+    let widget = Paragraph::new(lines).alignment(ratatui::layout::Alignment::Center);
+    frame.render_widget(widget, content_area);
+}
+
+/// Draw the Load World screen with enriched save information.
+pub fn draw_load_world(
+    frame: &mut Frame,
+    saves: &[SaveFileInfo],
+    selected: usize,
+    confirm_delete: bool,
+) {
+    let area = frame.area();
+    frame.render_widget(Clear, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2),  // top margin
             Constraint::Length(3),  // title
             Constraint::Length(1),  // spacer
             Constraint::Min(5),    // save list
+            Constraint::Length(1),  // spacer
             Constraint::Length(1), // footer
         ])
         .split(area);
@@ -240,7 +292,9 @@ pub fn draw_load_world(frame: &mut Frame, saves: &[SaveFileInfo], selected: usiz
     .alignment(ratatui::layout::Alignment::Center);
     frame.render_widget(title, chunks[1]);
 
-    let content_area = centered_horizontal(50, chunks[3]);
+    // Use a wider content area to fit the enriched info
+    let content_width = 72.min(area.width.saturating_sub(4));
+    let content_area = centered_horizontal(content_width, chunks[3]);
 
     if saves.is_empty() {
         let empty = Paragraph::new(vec![
@@ -255,35 +309,107 @@ pub fn draw_load_world(frame: &mut Frame, saves: &[SaveFileInfo], selected: usiz
                 Style::default().fg(Color::DarkGray),
             )),
         ]);
-        frame.render_widget(empty, content_area);
+        let block = Block::default()
+            .title(" Saved Worlds ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray));
+        frame.render_widget(empty.block(block), content_area);
     } else {
         let mut lines: Vec<Line> = Vec::new();
+
         for (i, save) in saves.iter().enumerate() {
-            let prefix = if i == selected { " > " } else { "   " };
-            let color = if i == selected {
+            let is_selected = i == selected;
+            let is_newest = i == 0; // Sorted by modified time, first = newest
+
+            // Build the save entry — each save gets 3 lines
+            let prefix = if is_selected { "▸ " } else { "  " };
+
+            // Line 1: save name + world name + autosave tag
+            let name_color = if is_selected {
                 Color::Green
+            } else if is_newest {
+                Color::White
             } else {
                 Color::Gray
             };
+
+            let mut name_spans = vec![
+                Span::styled(prefix, Style::default().fg(name_color)),
+            ];
+
+            if save.is_autosave {
+                name_spans.push(Span::styled(
+                    "[AUTO] ",
+                    Style::default().fg(Color::Yellow),
+                ));
+            }
+
+            name_spans.push(Span::styled(
+                &save.world_name,
+                Style::default().fg(name_color).add_modifier(if is_selected { Modifier::BOLD } else { Modifier::empty() }),
+            ));
+
+            if !save.is_autosave && save.name != save.world_name {
+                name_spans.push(Span::styled(
+                    format!("  ({})", save.name),
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
+
+            if is_newest {
+                name_spans.push(Span::styled(
+                    "  ★ most recent",
+                    Style::default().fg(Color::Yellow),
+                ));
+            }
+
+            lines.push(Line::from(name_spans));
+
+            // Line 2: tick, population, era info
+            let detail_color = if is_selected { Color::Cyan } else { Color::DarkGray };
+            let era_label = if save.era_count > 0 {
+                format!("{}  ({} completed eras)", save.era_name, save.era_count)
+            } else {
+                save.era_name.clone()
+            };
             lines.push(Line::from(Span::styled(
-                format!("{}{}", prefix, save.name),
-                Style::default().fg(color),
+                format!("    Tick: {}  |  Pop: {}  |  Era: {}",
+                    save.tick, save.population, era_label),
+                Style::default().fg(detail_color),
             )));
+
+            // Line 3: spacer (or delete confirmation)
+            if confirm_delete && is_selected {
+                lines.push(Line::from(vec![
+                    Span::styled("    ", Style::default()),
+                    Span::styled(
+                        "Delete this save? Y=confirm  N=cancel",
+                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    ),
+                ]));
+            } else {
+                lines.push(Line::from(""));
+            }
         }
 
         let block = Block::default()
             .title(" Saved Worlds ")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray));
+            .border_style(Style::default().fg(if confirm_delete { Color::Red } else { Color::DarkGray }));
         let list_widget = Paragraph::new(lines).block(block);
         frame.render_widget(list_widget, content_area);
     }
 
+    let footer_text = if confirm_delete {
+        " Y=confirm delete  |  N/ESC=cancel"
+    } else {
+        " ↑↓=select  Enter=load  D=delete  ESC=back"
+    };
     let footer = Paragraph::new(Span::styled(
-        " Up/Down to select  |  Enter to load  |  ESC to cancel",
+        footer_text,
         Style::default().fg(Color::DarkGray),
     ));
-    frame.render_widget(footer, chunks[4]);
+    frame.render_widget(footer, chunks[5]);
 }
 
 /// Draw the "Generating world..." screen.

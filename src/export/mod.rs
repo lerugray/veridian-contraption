@@ -290,6 +290,9 @@ fn sanitize_prefix(prefix: &str, default: &str) -> String {
 // Save / Load System
 // ---------------------------------------------------------------------------
 
+/// Maximum number of named save slots (excluding autosave).
+pub const MAX_SAVE_SLOTS: usize = 10;
+
 /// Ensure the saves directory exists.
 pub fn ensure_saves_dir() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all("saves")?;
@@ -329,14 +332,61 @@ pub fn load_world(path: &str) -> Result<SimState, Box<dyn std::error::Error>> {
     Ok(SimState::from_save_data(save_data))
 }
 
-/// Info about a save file for the Load World screen.
+/// Enriched info about a save file for the Load World screen.
 #[derive(Debug, Clone)]
 pub struct SaveFileInfo {
     pub name: String,
     pub path: String,
+    /// World name from inside the save.
+    pub world_name: String,
+    /// Current tick of the world.
+    pub tick: u64,
+    /// Number of living agents.
+    pub population: usize,
+    /// Current era name.
+    pub era_name: String,
+    /// Number of completed eras.
+    pub era_count: usize,
+    /// Whether this is an autosave.
+    pub is_autosave: bool,
+    /// File modification timestamp (seconds since epoch).
+    pub modified_secs: u64,
 }
 
-/// List all save files in /saves/.
+/// Lightweight struct for reading save metadata without full deserialization.
+#[derive(serde::Deserialize)]
+struct SaveMetadata {
+    world: WorldMeta,
+    #[serde(default)]
+    agents: Vec<AgentMeta>,
+    #[serde(default)]
+    annals: Vec<serde_json::Value>,
+    #[serde(default)]
+    current_era_name: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct WorldMeta {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    tick: u64,
+}
+
+#[derive(serde::Deserialize)]
+struct AgentMeta {
+    #[serde(default)]
+    alive: bool,
+}
+
+/// Read metadata from a save file without loading the full SimState.
+fn read_save_metadata(path: &std::path::Path) -> Option<SaveMetadata> {
+    let json = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&json).ok()
+}
+
+/// List all save files in /saves/, enriched with world metadata.
+/// Sorted by modification time, most recent first.
 pub fn list_saves() -> Vec<SaveFileInfo> {
     let save_dir = PathBuf::from("saves");
     if !save_dir.exists() {
@@ -353,19 +403,72 @@ pub fn list_saves() -> Vec<SaveFileInfo> {
                     .unwrap_or_default()
                     .to_string_lossy()
                     .to_string();
+
+                let is_autosave = name == "autosave";
+
+                let modified_secs = fs::metadata(&path)
+                    .and_then(|m| m.modified())
+                    .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)))
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+
+                // Read metadata from inside the save file
+                let (world_name, tick, population, era_name, era_count) =
+                    if let Some(meta) = read_save_metadata(&path) {
+                        let pop = meta.agents.iter().filter(|a| a.alive).count();
+                        let era = meta.current_era_name.unwrap_or_else(|| "Unknown Era".to_string());
+                        let eras = meta.annals.len();
+                        (meta.world.name, meta.world.tick, pop, era, eras)
+                    } else {
+                        (name.clone(), 0, 0, "Unknown".to_string(), 0)
+                    };
+
                 saves.push(SaveFileInfo {
                     name,
                     path: path.to_string_lossy().to_string(),
+                    world_name,
+                    tick,
+                    population,
+                    era_name,
+                    era_count,
+                    is_autosave,
+                    modified_secs,
                 });
             }
         }
     }
 
-    saves.sort_by(|a, b| a.name.cmp(&b.name));
+    // Sort by modification time, most recent first
+    saves.sort_by(|a, b| b.modified_secs.cmp(&a.modified_secs));
     saves
 }
 
-/// Check whether an autosave file exists.
-pub fn has_autosave() -> bool {
-    PathBuf::from("saves").join("autosave.json").exists()
+/// Count the number of named (non-autosave) save files.
+pub fn named_save_count() -> usize {
+    let save_dir = PathBuf::from("saves");
+    if !save_dir.exists() {
+        return 0;
+    }
+    fs::read_dir(&save_dir)
+        .map(|entries| {
+            entries.flatten().filter(|e| {
+                let path = e.path();
+                path.extension().map_or(false, |ext| ext == "json")
+                    && path.file_stem().map_or(false, |s| s != "autosave")
+            }).count()
+        })
+        .unwrap_or(0)
+}
+
+/// Delete a save file. Returns Ok(()) on success.
+pub fn delete_save(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    fs::remove_file(path)?;
+    Ok(())
+}
+
+/// Find the path to the most recently modified save file (any type).
+/// Returns None if no saves exist.
+pub fn most_recent_save() -> Option<SaveFileInfo> {
+    let saves = list_saves();
+    saves.into_iter().next()
 }

@@ -56,7 +56,10 @@ enum AppMode {
     LoadWorld {
         saves: Vec<SaveFileInfo>,
         selected: usize,
+        confirm_delete: bool,
     },
+    /// Shown when all 10 save slots are full and player tries to create a new world.
+    SavesFull,
     /// Brief "Generating..." screen shown for a few frames before sim starts.
     Generating {
         seed: u64,
@@ -77,7 +80,7 @@ fn run_app(
     let mut frame_count: u64 = 0;
     let mut mode = AppMode::MainMenu {
         selected: 0,
-        has_autosave: export::has_autosave(),
+        has_autosave: export::most_recent_save().is_some(),
     };
     // sim lives here, populated when entering InGame mode
     let mut sim: Option<SimState> = None;
@@ -95,8 +98,11 @@ fn run_app(
                 AppMode::NewWorld { selected_preset, seed_input, editing_seed } => {
                     ui::menu::draw_new_world(frame, *selected_preset, seed_input, *editing_seed);
                 }
-                AppMode::LoadWorld { saves, selected } => {
-                    ui::menu::draw_load_world(frame, saves, *selected);
+                AppMode::LoadWorld { saves, selected, confirm_delete } => {
+                    ui::menu::draw_load_world(frame, saves, *selected, *confirm_delete);
+                }
+                AppMode::SavesFull => {
+                    ui::menu::draw_saves_full(frame);
                 }
                 AppMode::Generating { .. } => {
                     ui::menu::draw_generating(frame);
@@ -158,7 +164,7 @@ fn run_app(
                             sim = None;
                             mode = AppMode::MainMenu {
                                 selected: 0,
-                                has_autosave: export::has_autosave(),
+                                has_autosave: export::most_recent_save().is_some(),
                             };
                         }
                     }
@@ -191,6 +197,15 @@ fn handle_input(
         }
         AppMode::LoadWorld { .. } => {
             handle_load_world_input(mode, sim, key);
+            InputResult::Continue
+        }
+        AppMode::SavesFull => {
+            if matches!(key, KeyCode::Esc) {
+                *mode = AppMode::MainMenu {
+                    selected: 0,
+                    has_autosave: export::most_recent_save().is_some(),
+                };
+            }
             InputResult::Continue
         }
         AppMode::WorldReport { .. } => {
@@ -236,25 +251,35 @@ fn handle_menu_input(
         KeyCode::Enter => {
             match *selected {
                 0 => {
-                    // New World
-                    *mode = AppMode::NewWorld {
-                        selected_preset: 4, // Default to Unguided
-                        seed_input: String::new(),
-                        editing_seed: false,
-                    };
+                    // New World — check if save slots are full
+                    if export::named_save_count() >= export::MAX_SAVE_SLOTS {
+                        *mode = AppMode::SavesFull;
+                    } else {
+                        *mode = AppMode::NewWorld {
+                            selected_preset: 4, // Default to Unguided
+                            seed_input: String::new(),
+                            editing_seed: false,
+                        };
+                    }
                 }
                 1 => {
-                    // Continue (load autosave)
+                    // Continue — load the most recently modified save (any type)
                     if has_autosave {
-                        let path = "saves/autosave.json";
-                        match export::load_world(path) {
-                            Ok(mut loaded) => {
-                                loaded.set_status_message("Resumed from autosave.".to_string());
-                                *sim = Some(loaded);
-                                *mode = AppMode::InGame;
-                            }
-                            Err(_) => {
-                                // Can't load — stay on menu
+                        if let Some(recent) = export::most_recent_save() {
+                            match export::load_world(&recent.path) {
+                                Ok(mut loaded) => {
+                                    let label = if recent.is_autosave {
+                                        "Resumed from autosave.".to_string()
+                                    } else {
+                                        format!("Resumed: {}", recent.world_name)
+                                    };
+                                    loaded.set_status_message(label);
+                                    *sim = Some(loaded);
+                                    *mode = AppMode::InGame;
+                                }
+                                Err(_) => {
+                                    // Can't load — stay on menu
+                                }
                             }
                         }
                     }
@@ -265,6 +290,7 @@ fn handle_menu_input(
                     *mode = AppMode::LoadWorld {
                         saves,
                         selected: 0,
+                        confirm_delete: false,
                     };
                 }
                 3 => {
@@ -326,7 +352,7 @@ fn handle_new_world_input(mode: &mut AppMode, key: KeyCode) {
             KeyCode::Esc => {
                 *mode = AppMode::MainMenu {
                     selected: 0,
-                    has_autosave: export::has_autosave(),
+                    has_autosave: export::most_recent_save().is_some(),
                 };
             }
             KeyCode::Up => {
@@ -374,17 +400,40 @@ fn hash_seed_string(s: &str) -> u64 {
 // ---------------------------------------------------------------------------
 
 fn handle_load_world_input(mode: &mut AppMode, sim: &mut Option<SimState>, key: KeyCode) {
-    let (saves, selected) = if let AppMode::LoadWorld { saves, selected } = mode {
-        (saves, selected)
+    let (saves, selected, confirm_delete) = if let AppMode::LoadWorld { saves, selected, confirm_delete } = mode {
+        (saves, selected, confirm_delete)
     } else {
         return;
     };
+
+    // If we're in delete confirmation mode, handle Y/N
+    if *confirm_delete {
+        match key {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                if !saves.is_empty() {
+                    let path = saves[*selected].path.clone();
+                    let _ = export::delete_save(&path);
+                    // Refresh the save list
+                    *saves = export::list_saves();
+                    if *selected >= saves.len() && !saves.is_empty() {
+                        *selected = saves.len() - 1;
+                    }
+                }
+                *confirm_delete = false;
+            }
+            _ => {
+                // Any other key cancels delete
+                *confirm_delete = false;
+            }
+        }
+        return;
+    }
 
     match key {
         KeyCode::Esc => {
             *mode = AppMode::MainMenu {
                 selected: 2,
-                has_autosave: export::has_autosave(),
+                has_autosave: export::most_recent_save().is_some(),
             };
         }
         KeyCode::Up => {
@@ -402,7 +451,7 @@ fn handle_load_world_input(mode: &mut AppMode, sim: &mut Option<SimState>, key: 
                 let path = saves[*selected].path.clone();
                 match export::load_world(&path) {
                     Ok(mut loaded) => {
-                        let name = saves[*selected].name.clone();
+                        let name = saves[*selected].world_name.clone();
                         loaded.set_status_message(format!("Loaded: {}", name));
                         *sim = Some(loaded);
                         *mode = AppMode::InGame;
@@ -411,6 +460,11 @@ fn handle_load_world_input(mode: &mut AppMode, sim: &mut Option<SimState>, key: 
                         // Stay on load screen — could show error in future
                     }
                 }
+            }
+        }
+        KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Delete => {
+            if !saves.is_empty() {
+                *confirm_delete = true;
             }
         }
         _ => {}
@@ -465,7 +519,7 @@ fn handle_world_report_input(
             *sim = None;
             *mode = AppMode::MainMenu {
                 selected: 0,
-                has_autosave: export::has_autosave(),
+                has_autosave: export::most_recent_save().is_some(),
             };
         }
         _ => {}
@@ -502,10 +556,28 @@ fn handle_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifiers) 
 
 /// Input handling for the main simulation view.
 fn handle_main_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifiers) -> InputResult {
-    // Check for Ctrl+S first
-    if modifiers.contains(KeyModifiers::CONTROL) && key == KeyCode::Char('s') {
+    // Check for Ctrl+Shift+S first (Save As — always prompt)
+    if modifiers.contains(KeyModifiers::CONTROL) && modifiers.contains(KeyModifiers::SHIFT)
+        && (key == KeyCode::Char('S') || key == KeyCode::Char('s'))
+    {
         let default_name = sim.save_name.clone().unwrap_or_default();
         sim.overlay = Overlay::SaveNameInput(default_name);
+        return InputResult::Continue;
+    }
+
+    // Check for Ctrl+S (Save — silent re-save if name exists, prompt if new)
+    if modifiers.contains(KeyModifiers::CONTROL) && key == KeyCode::Char('s') {
+        if let Some(ref name) = sim.save_name {
+            // Already has a save name — save silently
+            let name = name.clone();
+            match export::save_world(sim, &name) {
+                Ok(path) => sim.set_status_message(format!("Saved to {}", path)),
+                Err(e) => sim.set_status_message(format!("Save failed: {}", e)),
+            }
+        } else {
+            // No save name yet — prompt for one
+            sim.overlay = Overlay::SaveNameInput(String::new());
+        }
         return InputResult::Continue;
     }
 
@@ -947,7 +1019,7 @@ fn handle_export_input(sim: &mut SimState, key: KeyCode) {
     }
 }
 
-/// Input handling for the save name input overlay (Ctrl+S).
+/// Input handling for the save name input overlay (Ctrl+S first save, or Ctrl+Shift+S Save As).
 fn handle_save_name_input(sim: &mut SimState, key: KeyCode) {
     let input = if let Overlay::SaveNameInput(ref s) = sim.overlay {
         s.clone()
