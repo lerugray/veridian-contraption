@@ -399,7 +399,7 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
         .as_deref()
         .unwrap_or("unsaved");
     let status_text = format!(
-        " {}  |  Tick {}  |  {}  |  Pop: {}  |  [{}]  |  ?=help",
+        " {}  |  Tick {}  |  {}  |  Pop: {}  |  [{}]  |  1/5/2=spd PgUp/Dn=scroll ?=help",
         sim.world.name, sim.world.tick, sim.speed.label(), alive_count, save_label,
     );
     let status = Paragraph::new(status_text)
