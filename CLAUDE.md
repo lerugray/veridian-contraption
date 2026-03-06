@@ -99,10 +99,10 @@ prose, and runs continuously whether the player interacts or not.
 **Update this section at the end of every session.**
 
 ```
-CURRENT PHASE: Phase 5 IN PROGRESS
-LAST COMPLETED PROMPT: Phase 5-B — Visual Polish (color/symbol tuning, map legend, ASCII title)
+CURRENT PHASE: Phase 5 COMPLETE
+LAST COMPLETED PROMPT: Phase 5-C — Final cleanup, prose depth, overlay fixes
 STATUS: Working
-NEXT TASK: Phase 5-B continued — Full export system; Phase 5-C — Nested clause generation
+NEXT TASK: Phase 5+ — Distribution prep, further polish, or new features as directed
 ```
 
 ---
