@@ -62,6 +62,10 @@ enum AppMode {
         seed: u64,
         frames_shown: u32,
     },
+    /// World Assessment Report shown after generation, before sim starts. (scroll offset)
+    WorldReport {
+        scroll: usize,
+    },
     InGame,
 }
 
@@ -95,6 +99,11 @@ fn run_app(
                 AppMode::Generating { .. } => {
                     ui::menu::draw_generating(frame);
                 }
+                AppMode::WorldReport { scroll } => {
+                    if let Some(ref s) = sim {
+                        ui::overlays::draw_world_report_fullscreen(frame, s, *scroll, true);
+                    }
+                }
                 AppMode::InGame => {
                     if let Some(ref s) = sim {
                         ui::layout::draw_main_layout(frame, s);
@@ -109,7 +118,7 @@ fn run_app(
             if *frames_shown >= 3 {
                 let (world, agents, institutions, sites, artifacts) = world_gen::generate_world(seed);
                 sim = Some(SimState::new(world, agents, institutions, sites, artifacts));
-                mode = AppMode::InGame;
+                mode = AppMode::WorldReport { scroll: 0 };
                 continue;
             }
         }
@@ -180,6 +189,9 @@ fn handle_input(
         AppMode::LoadWorld { .. } => {
             handle_load_world_input(mode, sim, key);
             InputResult::Continue
+        }
+        AppMode::WorldReport { .. } => {
+            handle_world_report_input(mode, sim, key)
         }
         AppMode::Generating { .. } => InputResult::Continue,
         AppMode::InGame => {
@@ -403,6 +415,61 @@ fn handle_load_world_input(mode: &mut AppMode, sim: &mut Option<SimState>, key: 
 }
 
 // ---------------------------------------------------------------------------
+// World Report Input (pre-sim)
+// ---------------------------------------------------------------------------
+
+fn handle_world_report_input(
+    mode: &mut AppMode,
+    sim: &mut Option<SimState>,
+    key: KeyCode,
+) -> InputResult {
+    let scroll = if let AppMode::WorldReport { scroll } = mode {
+        scroll
+    } else {
+        return InputResult::Continue;
+    };
+
+    match key {
+        KeyCode::Enter => {
+            // Begin simulation
+            *mode = AppMode::InGame;
+        }
+        KeyCode::Char('r') | KeyCode::Char('R') => {
+            // Reroll: generate a new random seed and regenerate
+            let new_seed = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(42);
+            let (world, agents, institutions, sites, artifacts) = world_gen::generate_world(new_seed);
+            *sim = Some(SimState::new(world, agents, institutions, sites, artifacts));
+            *mode = AppMode::WorldReport { scroll: 0 };
+        }
+        KeyCode::Up => {
+            *scroll = scroll.saturating_sub(1);
+        }
+        KeyCode::Down => {
+            *scroll += 1;
+        }
+        KeyCode::PageUp => {
+            *scroll = scroll.saturating_sub(10);
+        }
+        KeyCode::PageDown => {
+            *scroll += 10;
+        }
+        KeyCode::Esc => {
+            // Return to main menu, discard world
+            *sim = None;
+            *mode = AppMode::MainMenu {
+                selected: 0,
+                has_autosave: export::has_autosave(),
+            };
+        }
+        _ => {}
+    }
+    InputResult::Continue
+}
+
+// ---------------------------------------------------------------------------
 // In-Game Input
 // ---------------------------------------------------------------------------
 
@@ -416,6 +483,7 @@ fn handle_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifiers) 
         Overlay::FactionList(_) => { handle_faction_list_input(sim, key); InputResult::Continue }
         Overlay::Help => { if matches!(key, KeyCode::Esc | KeyCode::Char('?')) { sim.overlay = Overlay::None; } InputResult::Continue }
         Overlay::SiteList(_) => { handle_site_list_input(sim, key); InputResult::Continue }
+        Overlay::WorldReport(_) => { handle_world_report_overlay_input(sim, key); InputResult::Continue }
         Overlay::SiteView(_, _) => { handle_site_view_input(sim, key); InputResult::Continue }
         Overlay::FollowSelect(_) => { handle_follow_select_input(sim, key); InputResult::Continue }
         Overlay::FollowAgentPick(_) => { handle_follow_agent_pick_input(sim, key); InputResult::Continue }
@@ -485,6 +553,9 @@ fn handle_main_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifi
         }
         KeyCode::Char('?') => {
             sim.overlay = Overlay::Help;
+        }
+        KeyCode::Char('W') => {
+            sim.overlay = Overlay::WorldReport(0);
         }
         KeyCode::Char('s') => {
             if !sim.sites.is_empty() {
@@ -743,6 +814,19 @@ fn handle_site_view_input(sim: &mut SimState, key: KeyCode) {
                 sim.tick();
             }
         }
+        _ => {}
+    }
+}
+
+/// Input handling for the in-game world report overlay (W key).
+fn handle_world_report_overlay_input(sim: &mut SimState, key: KeyCode) {
+    let scroll = if let Overlay::WorldReport(s) = sim.overlay { s } else { return; };
+    match key {
+        KeyCode::Esc => { sim.overlay = Overlay::None; }
+        KeyCode::Up => { sim.overlay = Overlay::WorldReport(scroll.saturating_sub(1)); }
+        KeyCode::Down => { sim.overlay = Overlay::WorldReport(scroll + 1); }
+        KeyCode::PageUp => { sim.overlay = Overlay::WorldReport(scroll.saturating_sub(10)); }
+        KeyCode::PageDown => { sim.overlay = Overlay::WorldReport(scroll + 10); }
         _ => {}
     }
 }

@@ -100,7 +100,7 @@ prose, and runs continuously whether the player interacts or not.
 
 ```
 CURRENT PHASE: Phase 3 IN PROGRESS
-LAST COMPLETED PROMPT: 3-B — Artifacts & Adventurer Agents
+LAST COMPLETED PROMPT: 3-C — World Assessment Report Screen
 STATUS: Working
 NEXT TASK: Phase 3 polish / Phase 4 — World Parametric Variance
 ```
@@ -152,6 +152,11 @@ Claude Code has no memory between sessions. SESSION_NOTES.md bridges the gap.
 - At the start: read SESSION_NOTES.md and orient yourself
 - Every ~15-20 exchanges or when context is getting long: update SESSION_NOTES.md
 - At the end of every session (or when asked): write a full session summary to SESSION_NOTES.md
+
+**SESSION_NOTES.md is a full rewrite every time.**
+Do not append to the file. Each update should replace the entire contents with a
+fresh snapshot: current state, what's working, known issues, and next steps. Old
+session history does not need to be preserved — only the current picture matters.
 
 **SESSION_NOTES.md format:**
 ```markdown

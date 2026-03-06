@@ -735,6 +735,7 @@ pub fn draw_help(frame: &mut Frame) {
         Line::from(vec![Span::styled("   f        ", key_style), Span::styled("Follow agent or institution", desc_style)]),
         Line::from(vec![Span::styled("   F        ", key_style), Span::styled("View faction list", desc_style)]),
         Line::from(vec![Span::styled("   s        ", key_style), Span::styled("Browse sites (dungeons, ruins, etc.)", desc_style)]),
+        Line::from(vec![Span::styled("   W        ", key_style), Span::styled("World Assessment Report", desc_style)]),
         Line::from(vec![Span::styled("   PgUp/Dn  ", key_style), Span::styled("Scroll log", desc_style)]),
         Line::from(""),
         Line::from(Span::styled(" EXPORT & SAVE", header_style)),
@@ -831,6 +832,362 @@ pub fn draw_save_name_input(frame: &mut Frame, input: &str) {
 
     let widget = Paragraph::new(lines).block(block);
     frame.render_widget(widget, area);
+}
+
+/// Build the content lines for the World Assessment Report.
+fn build_world_report_lines(sim: &SimState) -> Vec<Line<'static>> {
+    let w = &sim.world;
+    let label_style = Style::default().fg(Color::DarkGray);
+    let header_style = Style::default().fg(Color::Yellow);
+    let value_style = Style::default().fg(Color::White);
+    let accent_style = Style::default().fg(Color::Cyan);
+    let dim_style = Style::default().fg(Color::Rgb(100, 100, 100));
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    // Title block
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "═══════════════════════════════════════════════════════════════",
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(Line::from(Span::styled(
+        "        WORLD ASSESSMENT REPORT",
+        Style::default().fg(Color::Green),
+    )));
+    lines.push(Line::from(Span::styled(
+        "        Prepared by the Bureau of Initial Conditions",
+        dim_style,
+    )));
+    lines.push(Line::from(Span::styled(
+        "═══════════════════════════════════════════════════════════════",
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(Line::from(""));
+
+    // World identity
+    lines.push(Line::from(vec![
+        Span::styled("  Designation:       ", label_style),
+        Span::styled(w.name.clone(), accent_style),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  Seed:              ", label_style),
+        Span::styled(format!("{}", w.seed), value_style),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  Current Tick:      ", label_style),
+        Span::styled(format!("{}", w.tick), value_style),
+    ]));
+    lines.push(Line::from(""));
+
+    // World parameters (placeholder values — full parametric gen is Phase 4)
+    lines.push(Line::from(Span::styled(
+        "  OPERATIONAL PARAMETERS",
+        header_style,
+    )));
+    lines.push(Line::from(Span::styled(
+        "  ─────────────────────────────────────────",
+        dim_style,
+    )));
+    let params = [
+        ("  Temporal Rate:         ", "Standard"),
+        ("  Political Churn:       ", "Moderate"),
+        ("  Cosmological Density:  ", "Low-Nominal"),
+        ("  Ecological Volatility: ", "Unremarkable"),
+        ("  Narrative Register:    ", "Bureaucratic"),
+        ("  Weirdness Coefficient: ", "Within Acceptable Bounds"),
+    ];
+    for (lbl, val) in params {
+        lines.push(Line::from(vec![
+            Span::styled(lbl, label_style),
+            Span::styled(val, value_style),
+        ]));
+    }
+    lines.push(Line::from(Span::styled(
+        "  (Full parametric variance pending Phase 4 implementation.)",
+        dim_style,
+    )));
+    lines.push(Line::from(""));
+
+    // Peoples
+    lines.push(Line::from(Span::styled(
+        "  REGISTERED PEOPLES",
+        header_style,
+    )));
+    lines.push(Line::from(Span::styled(
+        "  ─────────────────────────────────────────",
+        dim_style,
+    )));
+
+    let total_pop: u32 = w.peoples.iter().map(|p| p.population).sum();
+    let alive_count = sim.agents.iter().filter(|a| a.alive).count();
+
+    for people in &w.peoples {
+        let terrain_note: Vec<&str> = people.preferred_terrain.iter().map(|t| match t {
+            crate::sim::world::Terrain::Plains => "plains-dwelling",
+            crate::sim::world::Terrain::Hills => "hill-favoring",
+            crate::sim::world::Terrain::Forest => "forest-adapted",
+            crate::sim::world::Terrain::Mountains => "mountain-dwelling",
+            crate::sim::world::Terrain::Desert => "desert-acclimated",
+            _ => "amphibiously inclined",
+        }).collect();
+        let culture_note = if terrain_note.is_empty() {
+            "of uncertain territorial preference".to_string()
+        } else {
+            terrain_note.join(", ")
+        };
+
+        // Count living agents of this people
+        let people_idx = w.peoples.iter().position(|p| p.name == people.name).unwrap_or(0);
+        let living = sim.agents.iter().filter(|a| a.alive && a.people_id == people_idx).count();
+
+        lines.push(Line::from(vec![
+            Span::styled("  ", label_style),
+            Span::styled(people.name.clone(), accent_style),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("    Registered population: ", label_style),
+            Span::styled(format!("{}", people.population), value_style),
+            Span::styled(format!("  (agents extant: {})", living), dim_style),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("    Cultural assessment:   ", label_style),
+            Span::styled(culture_note, value_style),
+        ]));
+    }
+    lines.push(Line::from(vec![
+        Span::styled("  Total registered population: ", label_style),
+        Span::styled(format!("{}", total_pop), value_style),
+        Span::styled(format!("  (living agents: {})", alive_count), dim_style),
+    ]));
+    lines.push(Line::from(""));
+
+    // Settlements
+    lines.push(Line::from(Span::styled(
+        "  CHARTERED SETTLEMENTS",
+        header_style,
+    )));
+    lines.push(Line::from(Span::styled(
+        "  ─────────────────────────────────────────",
+        dim_style,
+    )));
+    for s in &w.settlements {
+        let size_label = match s.size {
+            crate::sim::world::SettlementSize::Hamlet => "Hamlet",
+            crate::sim::world::SettlementSize::Town => "Town",
+            crate::sim::world::SettlementSize::City => "City",
+        };
+        lines.push(Line::from(vec![
+            Span::styled("  ", label_style),
+            Span::styled(s.name.clone(), accent_style),
+            Span::styled(format!("  ({}, grid {},{})", size_label, s.x, s.y), label_style),
+        ]));
+    }
+    lines.push(Line::from(vec![
+        Span::styled(
+            format!("  {} settlement{} on record.", w.settlements.len(),
+                if w.settlements.len() == 1 { "" } else { "s" }),
+            dim_style,
+        ),
+    ]));
+    lines.push(Line::from(""));
+
+    // Institutions
+    let active_institutions: Vec<_> = sim.institutions.iter().filter(|i| i.alive).collect();
+    lines.push(Line::from(Span::styled(
+        "  RECOGNIZED INSTITUTIONS",
+        header_style,
+    )));
+    lines.push(Line::from(Span::styled(
+        "  ─────────────────────────────────────────",
+        dim_style,
+    )));
+    if active_institutions.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  None currently recognized. (This is administratively unusual.)",
+            dim_style,
+        )));
+    } else {
+        for inst in &active_institutions {
+            lines.push(Line::from(vec![
+                Span::styled("  ", label_style),
+                Span::styled(inst.name.clone(), accent_style),
+                Span::styled(format!("  ({})", inst.kind.label()), label_style),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("    Charter: ", label_style),
+                Span::styled(inst.charter.clone(), value_style),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("    Members: ", label_style),
+                Span::styled(format!("{}  ", inst.member_ids.len()), value_style),
+                Span::styled("Power: ", label_style),
+                Span::styled(format!("{}", inst.power), value_style),
+            ]));
+        }
+    }
+    lines.push(Line::from(vec![
+        Span::styled(
+            format!("  {} institution{} at present.",
+                active_institutions.len(),
+                if active_institutions.len() == 1 { "" } else { "s" }),
+            dim_style,
+        ),
+    ]));
+    lines.push(Line::from(""));
+
+    // Sites
+    lines.push(Line::from(Span::styled(
+        "  CATALOGUED SITES OF INTEREST",
+        header_style,
+    )));
+    lines.push(Line::from(Span::styled(
+        "  ─────────────────────────────────────────",
+        dim_style,
+    )));
+    if sim.sites.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  No sites catalogued. (The cartographers have been notified.)",
+            dim_style,
+        )));
+    } else {
+        for site in &sim.sites {
+            let artifact_note = if site.artifacts.is_empty() {
+                String::new()
+            } else {
+                format!("  [{} artifact{}]",
+                    site.artifacts.len(),
+                    if site.artifacts.len() == 1 { "" } else { "s" })
+            };
+            lines.push(Line::from(vec![
+                Span::styled("  ", label_style),
+                Span::styled(site.name.clone(), Style::default().fg(site.kind.map_color())),
+                Span::styled(format!("  ({})", site.kind.label()), label_style),
+                Span::styled(artifact_note, Style::default().fg(Color::LightYellow)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("    ", label_style),
+                Span::styled(site.origin.clone(), dim_style),
+            ]));
+        }
+    }
+    lines.push(Line::from(vec![
+        Span::styled(
+            format!("  {} site{} documented.",
+                sim.sites.len(),
+                if sim.sites.len() == 1 { "" } else { "s" }),
+            dim_style,
+        ),
+    ]));
+    lines.push(Line::from(""));
+
+    // Artifacts summary
+    if !sim.artifacts.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  REGISTERED ARTIFACTS",
+            header_style,
+        )));
+        lines.push(Line::from(Span::styled(
+            "  ─────────────────────────────────────────",
+            dim_style,
+        )));
+        for art in &sim.artifacts {
+            let loc_str = match &art.current_location {
+                crate::sim::artifact::ArtifactLocation::InSite(idx) => {
+                    sim.sites.get(*idx).map(|s| format!("in {}", s.name))
+                        .unwrap_or_else(|| "in unknown site".to_string())
+                }
+                crate::sim::artifact::ArtifactLocation::HeldByAgent(id) => {
+                    sim.agents.iter().find(|a| a.id == *id)
+                        .map(|a| format!("held by {}", a.display_name()))
+                        .unwrap_or_else(|| "held by unknown party".to_string())
+                }
+                crate::sim::artifact::ArtifactLocation::InSettlement(idx) => {
+                    sim.world.settlements.get(*idx).map(|s| format!("in {}", s.name))
+                        .unwrap_or_else(|| "in unknown settlement".to_string())
+                }
+                crate::sim::artifact::ArtifactLocation::Lost => "whereabouts unknown".to_string(),
+            };
+            lines.push(Line::from(vec![
+                Span::styled("  ", label_style),
+                Span::styled(art.name.clone(), Style::default().fg(Color::LightYellow)),
+                Span::styled(format!("  ({})", art.kind.label()), label_style),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("    Location: ", label_style),
+                Span::styled(loc_str, value_style),
+            ]));
+        }
+        lines.push(Line::from(""));
+    }
+
+    // Closing flourish
+    lines.push(Line::from(Span::styled(
+        "═══════════════════════════════════════════════════════════════",
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  This report was generated automatically by the Bureau of",
+        dim_style,
+    )));
+    lines.push(Line::from(Span::styled(
+        "  Initial Conditions. Any resemblance to a coherent world is",
+        dim_style,
+    )));
+    lines.push(Line::from(Span::styled(
+        "  provisional and subject to revision without notice.",
+        dim_style,
+    )));
+    lines.push(Line::from(Span::styled(
+        "═══════════════════════════════════════════════════════════════",
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(Line::from(""));
+
+    lines
+}
+
+/// Draw the World Assessment Report as a fullscreen view.
+/// `is_pre_sim` controls whether R=Reroll is shown (only before sim starts).
+pub fn draw_world_report_fullscreen(frame: &mut Frame, sim: &SimState, scroll: usize, is_pre_sim: bool) {
+    let area = frame.area();
+    frame.render_widget(Clear, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(3),    // report content
+            Constraint::Length(1), // footer
+        ])
+        .split(area);
+
+    let inner_height = chunks[0].height.saturating_sub(2) as usize;
+    let report_lines = build_world_report_lines(sim);
+    let total = report_lines.len();
+    let max_scroll = total.saturating_sub(inner_height);
+    let effective_scroll = scroll.min(max_scroll);
+    let end = (effective_scroll + inner_height).min(total);
+    let visible: Vec<Line> = report_lines[effective_scroll..end].to_vec();
+
+    let block = Block::default()
+        .title(" WORLD ASSESSMENT REPORT ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Green));
+
+    let widget = Paragraph::new(visible).block(block);
+    frame.render_widget(widget, chunks[0]);
+
+    // Footer
+    let footer_text = if is_pre_sim {
+        " ENTER = Begin Simulation  |  R = Reroll  |  Up/Down/PgUp/PgDn = Scroll  |  ESC = Cancel"
+    } else {
+        " ESC = Close  |  Up/Down/PgUp/PgDn = Scroll"
+    };
+    let footer = Paragraph::new(Span::styled(
+        footer_text,
+        Style::default().fg(Color::DarkGray),
+    ));
+    frame.render_widget(footer, chunks[1]);
 }
 
 /// Simple text bar visualization for a 0.0-1.0 value.

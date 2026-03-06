@@ -91,6 +91,9 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
         Overlay::Help => {
             overlays::draw_help(frame);
         }
+        Overlay::WorldReport(scroll) => {
+            overlays::draw_world_report_fullscreen(frame, sim, *scroll, false);
+        }
         Overlay::SiteList(selected) => {
             overlays::draw_site_list(frame, sim, *selected);
         }
@@ -524,7 +527,7 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
     };
 
     let status_text = format!(
-        " {}  |  Tick {}  |  {}  |  Pop: {}  |  [{}]{}  |  1/5/2=spd s=sites ?=help",
+        " {}  |  Tick {}  |  {}  |  Pop: {}  |  [{}]{}  |  1/5/2=spd s=sites W=world ?=help",
         sim.world.name, sim.world.tick, sim.speed.label(), alive_count, save_label, site_hint,
     );
     let status = Paragraph::new(status_text)

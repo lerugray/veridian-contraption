@@ -87,6 +87,8 @@ pub enum Overlay {
     SiteList(usize),
     /// Viewing a site interior. (site index, current floor index)
     SiteView(usize, usize),
+    /// World Assessment Report (in-game, via W key). (scroll offset)
+    WorldReport(usize),
     /// Quit confirm: return to main menu? (selected option: 0=save&return, 1=return, 2=cancel)
     QuitConfirm(usize),
 }
