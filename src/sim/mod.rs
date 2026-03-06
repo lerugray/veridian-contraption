@@ -2,6 +2,7 @@ pub mod world;
 pub mod agent;
 pub mod event;
 pub mod institution;
+pub mod site;
 
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -12,6 +13,7 @@ use crate::gen::prose_gen;
 use crate::sim::agent::Agent;
 use crate::sim::event::{Event, EventType};
 use crate::sim::institution::Institution;
+use crate::sim::site::Site;
 use crate::sim::world::World;
 
 /// Maximum number of events kept in the log ring buffer.
@@ -79,6 +81,10 @@ pub enum Overlay {
     FollowInstitutionPick(usize),
     /// Help screen showing all keybindings.
     Help,
+    /// Site list: browsable list of all sites. (selected index)
+    SiteList(usize),
+    /// Viewing a site interior. (site index, current floor index)
+    SiteView(usize, usize),
     /// Quit confirm: return to main menu? (selected option: 0=save&return, 1=return, 2=cancel)
     QuitConfirm(usize),
 }
@@ -90,6 +96,8 @@ pub struct SaveData {
     pub agents: Vec<Agent>,
     #[serde(default)]
     pub institutions: Vec<Institution>,
+    #[serde(default)]
+    pub sites: Vec<Site>,
     pub speed: SimSpeed,
     pub events: Vec<Event>,
     pub save_name: Option<String>,
@@ -104,6 +112,7 @@ pub struct SimState {
     pub world: World,
     pub agents: Vec<Agent>,
     pub institutions: Vec<Institution>,
+    pub sites: Vec<Site>,
     pub speed: SimSpeed,
     /// Event log (ring buffer, most recent at end).
     pub events: Vec<Event>,
@@ -129,7 +138,7 @@ pub struct SimState {
 }
 
 impl SimState {
-    pub fn new(world: World, agents: Vec<Agent>, institutions: Vec<Institution>) -> Self {
+    pub fn new(world: World, agents: Vec<Agent>, institutions: Vec<Institution>, sites: Vec<Site>) -> Self {
         let rng = StdRng::seed_from_u64(world.seed.wrapping_add(1));
         let next_id = institutions.iter().map(|i| i.id + 1).max().unwrap_or(0);
         let genesis = Event {
@@ -143,6 +152,7 @@ impl SimState {
             world,
             agents,
             institutions,
+            sites,
             speed: SimSpeed::Paused,
             events: vec![genesis],
             log_scroll: 0,
@@ -163,6 +173,7 @@ impl SimState {
             world: self.world.clone(),
             agents: self.agents.clone(),
             institutions: self.institutions.clone(),
+            sites: self.sites.clone(),
             speed: self.speed,
             events: self.events.clone(),
             save_name: self.save_name.clone(),
@@ -180,6 +191,7 @@ impl SimState {
             world: data.world,
             agents: data.agents,
             institutions: data.institutions,
+            sites: data.sites,
             speed: data.speed,
             events: data.events,
             log_scroll: 0,

@@ -8,6 +8,7 @@ use ratatui::{
 
 use crate::sim::{Overlay, SimState};
 use crate::sim::world::{MAP_HEIGHT, MAP_WIDTH};
+use crate::sim::site::{FLOOR_HEIGHT, FLOOR_WIDTH};
 use crate::ui::overlays;
 
 /// Colors assigned to agents based on their people_id.
@@ -39,7 +40,12 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
         ])
         .split(chunks[0]);
 
-    draw_map_panel(frame, panels[0], sim);
+    // If viewing a site, draw site floor instead of world map
+    if let Overlay::SiteView(site_idx, floor_idx) = &sim.overlay {
+        draw_site_panel(frame, panels[0], sim, *site_idx, *floor_idx);
+    } else {
+        draw_map_panel(frame, panels[0], sim);
+    }
 
     // If following, split the right pane: top = log, bottom = chronicle
     if sim.follow_target.is_some() {
@@ -85,6 +91,12 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
         Overlay::Help => {
             overlays::draw_help(frame);
         }
+        Overlay::SiteList(selected) => {
+            overlays::draw_site_list(frame, sim, *selected);
+        }
+        Overlay::SiteView(_, _) => {
+            // Site view replaces the map panel, handled above — no popup overlay needed
+        }
         Overlay::ExportMenu => {
             overlays::draw_export_menu(frame);
         }
@@ -121,6 +133,15 @@ fn draw_map_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
         if ay < MAP_HEIGHT && ax < MAP_WIDTH {
             agent_counts[ay][ax] += 1;
             agent_people[ay][ax] = agent.people_id;
+        }
+    }
+
+    // Overlay sites on the map (before agents so agents on top of sites show as @)
+    for site in &sim.sites {
+        let sx = site.grid_x as usize;
+        let sy = site.grid_y as usize;
+        if sy < MAP_HEIGHT && sx < MAP_WIDTH {
+            rendered[sy][sx] = ('Ω', site.kind.map_color());
         }
     }
 
@@ -384,6 +405,98 @@ fn draw_follow_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
     frame.render_widget(widget, area);
 }
 
+fn draw_site_panel(frame: &mut Frame, area: Rect, sim: &SimState, site_idx: usize, floor_idx: usize) {
+    let site = match sim.sites.get(site_idx) {
+        Some(s) => s,
+        None => {
+            let block = Block::default().title(" SITE ").borders(Borders::ALL);
+            frame.render_widget(Paragraph::new("Site not found.").block(block), area);
+            return;
+        }
+    };
+    let floor = match site.floors.get(floor_idx) {
+        Some(f) => f,
+        None => {
+            let block = Block::default().title(" SITE ").borders(Borders::ALL);
+            frame.render_widget(Paragraph::new("Floor not found.").block(block), area);
+            return;
+        }
+    };
+
+    let floor_label = if site.floors.len() > 1 {
+        format!(" {} — Floor {} of {} [ESC=back, </>=floors] ",
+                site.name, floor_idx + 1, site.floors.len())
+    } else {
+        format!(" {} [ESC=back] ", site.name)
+    };
+
+    let block = Block::default()
+        .title(floor_label)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(site.kind.map_color()));
+
+    // Build agent positions within this site for overlay
+    // (For now, agents don't actually move within sites — just show population)
+    let agent_positions: Vec<(usize, usize, usize)> = site.population.iter()
+        .filter_map(|&aid| {
+            sim.agents.iter().find(|a| a.id == aid && a.alive).map(|a| {
+                // Place agents in random-ish spots within rooms
+                let room_idx = (aid as usize) % floor.rooms.len().max(1);
+                if let Some(room) = floor.rooms.get(room_idx) {
+                    let (cx, cy) = room.center();
+                    (cx, cy, a.people_id)
+                } else {
+                    (FLOOR_WIDTH / 2, FLOOR_HEIGHT / 2, a.people_id)
+                }
+            })
+        })
+        .collect();
+
+    let inner_w = area.width.saturating_sub(2) as usize;
+    let inner_h = area.height.saturating_sub(2) as usize;
+
+    // Build the tile grid lines
+    let mut lines: Vec<Line> = Vec::new();
+
+    // Scale: try 1:1 first, stretch if panel is bigger
+    let col_base = inner_w / FLOOR_WIDTH;
+    let col_extra = inner_w % FLOOR_WIDTH;
+    let row_base = inner_h / FLOOR_HEIGHT;
+    let row_extra = inner_h % FLOOR_HEIGHT;
+
+    for y in 0..FLOOR_HEIGHT {
+        let row_repeats = if y < row_extra { row_base + 1 } else { row_base };
+        if row_repeats == 0 {
+            continue;
+        }
+
+        let spans: Vec<Span> = (0..FLOOR_WIDTH)
+            .map(|x| {
+                let w = if x < col_extra { col_base + 1 } else { col_base };
+
+                // Check if an agent is at this position
+                if let Some((_, _, people_id)) = agent_positions.iter().find(|(ax, ay, _)| *ax == x && *ay == y) {
+                    let color = PEOPLE_COLORS[people_id % PEOPLE_COLORS.len()];
+                    let s: String = std::iter::repeat('@').take(w.max(1)).collect();
+                    Span::styled(s, Style::default().fg(color))
+                } else {
+                    let tile = floor.tiles[y][x];
+                    let s: String = std::iter::repeat(tile.glyph()).take(w.max(1)).collect();
+                    Span::styled(s, Style::default().fg(tile.color()))
+                }
+            })
+            .collect();
+
+        let line = Line::from(spans);
+        for _ in 0..row_repeats {
+            lines.push(line.clone());
+        }
+    }
+
+    let widget = Paragraph::new(lines).block(block);
+    frame.render_widget(widget, area);
+}
+
 fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
     // If there's a temporary status message, show it instead of the default bar
     if let Some((ref msg, _)) = sim.status_message {
@@ -398,9 +511,21 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
         .save_name
         .as_deref()
         .unwrap_or("unsaved");
+
+    // Show site info if viewing a site
+    let site_hint = if let Overlay::SiteView(si, fi) = &sim.overlay {
+        if let Some(site) = sim.sites.get(*si) {
+            format!("  |  {} (F{})", site.name, fi + 1)
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
     let status_text = format!(
-        " {}  |  Tick {}  |  {}  |  Pop: {}  |  [{}]  |  1/5/2=spd PgUp/Dn=scroll ?=help",
-        sim.world.name, sim.world.tick, sim.speed.label(), alive_count, save_label,
+        " {}  |  Tick {}  |  {}  |  Pop: {}  |  [{}]{}  |  1/5/2=spd s=sites ?=help",
+        sim.world.name, sim.world.tick, sim.speed.label(), alive_count, save_label, site_hint,
     );
     let status = Paragraph::new(status_text)
         .style(Style::default().fg(Color::White).bg(Color::DarkGray));

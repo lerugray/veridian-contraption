@@ -107,8 +107,8 @@ fn run_app(
         if let AppMode::Generating { seed, ref mut frames_shown } = mode {
             *frames_shown += 1;
             if *frames_shown >= 3 {
-                let (world, agents, institutions) = world_gen::generate_world(seed);
-                sim = Some(SimState::new(world, agents, institutions));
+                let (world, agents, institutions, sites) = world_gen::generate_world(seed);
+                sim = Some(SimState::new(world, agents, institutions, sites));
                 mode = AppMode::InGame;
                 continue;
             }
@@ -415,6 +415,8 @@ fn handle_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifiers) 
         Overlay::AgentList(_) => { handle_agent_list_input(sim, key); InputResult::Continue }
         Overlay::FactionList(_) => { handle_faction_list_input(sim, key); InputResult::Continue }
         Overlay::Help => { if matches!(key, KeyCode::Esc | KeyCode::Char('?')) { sim.overlay = Overlay::None; } InputResult::Continue }
+        Overlay::SiteList(_) => { handle_site_list_input(sim, key); InputResult::Continue }
+        Overlay::SiteView(_, _) => { handle_site_view_input(sim, key); InputResult::Continue }
         Overlay::FollowSelect(_) => { handle_follow_select_input(sim, key); InputResult::Continue }
         Overlay::FollowAgentPick(_) => { handle_follow_agent_pick_input(sim, key); InputResult::Continue }
         Overlay::FollowInstitutionPick(_) => { handle_follow_institution_pick_input(sim, key); InputResult::Continue }
@@ -480,6 +482,11 @@ fn handle_main_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifi
         }
         KeyCode::Char('?') => {
             sim.overlay = Overlay::Help;
+        }
+        KeyCode::Char('s') => {
+            if !sim.sites.is_empty() {
+                sim.overlay = Overlay::SiteList(0);
+            }
         }
         _ => {}
     }
@@ -671,6 +678,49 @@ fn handle_follow_institution_pick_input(sim: &mut SimState, key: KeyCode) {
                 sim.follow_target = Some(crate::sim::FollowTarget::Institution(inst_id));
                 sim.overlay = Overlay::None;
                 sim.set_status_message(format!("Following {}.", inst_name));
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Input handling for the site list overlay (s key).
+fn handle_site_list_input(sim: &mut SimState, key: KeyCode) {
+    let selected = if let Overlay::SiteList(sel) = sim.overlay { sel } else { return; };
+    let max_idx = sim.sites.len().saturating_sub(1);
+    match key {
+        KeyCode::Esc => { sim.overlay = Overlay::None; }
+        KeyCode::Up => { sim.overlay = Overlay::SiteList(selected.saturating_sub(1)); }
+        KeyCode::Down => { sim.overlay = Overlay::SiteList((selected + 1).min(max_idx)); }
+        KeyCode::Enter => {
+            if selected < sim.sites.len() {
+                sim.overlay = Overlay::SiteView(selected, 0);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Input handling for the site view (viewing a dungeon floor).
+fn handle_site_view_input(sim: &mut SimState, key: KeyCode) {
+    let (site_idx, floor_idx) = if let Overlay::SiteView(si, fi) = sim.overlay {
+        (si, fi)
+    } else {
+        return;
+    };
+    match key {
+        KeyCode::Esc => { sim.overlay = Overlay::None; }
+        // Navigate floors with < and >
+        KeyCode::Char('<') | KeyCode::Char(',') => {
+            if floor_idx > 0 {
+                sim.overlay = Overlay::SiteView(site_idx, floor_idx - 1);
+            }
+        }
+        KeyCode::Char('>') | KeyCode::Char('.') => {
+            if let Some(site) = sim.sites.get(site_idx) {
+                if floor_idx + 1 < site.floors.len() {
+                    sim.overlay = Overlay::SiteView(site_idx, floor_idx + 1);
+                }
             }
         }
         _ => {}

@@ -1,0 +1,448 @@
+// Dungeon and site generation.
+
+use rand::rngs::StdRng;
+use rand::Rng;
+
+use crate::gen::name_gen;
+use crate::sim::site::*;
+use crate::sim::world::{MAP_HEIGHT, MAP_WIDTH, Terrain};
+
+/// Generate 4-8 sites placed on varied terrain across the world map.
+pub fn generate_sites(
+    terrain: &[Vec<Terrain>],
+    phonemes: &[name_gen::PhonemeSet],
+    institutions: &[(u64, String)],
+    rng: &mut StdRng,
+) -> Vec<Site> {
+    let count = rng.gen_range(4..=8);
+    let mut sites = Vec::new();
+
+    // First 2 sites are always dungeons so the player has multi-floor sites to explore.
+    // Remaining sites are drawn from the full pool.
+    let guaranteed = [SiteKind::Dungeon, SiteKind::Dungeon];
+    let random_pool = [
+        SiteKind::Dungeon,
+        SiteKind::Ruin,
+        SiteKind::Ruin,
+        SiteKind::Shrine,
+        SiteKind::BureaucraticAnnex,
+        SiteKind::ControversialTombsite,
+        SiteKind::TaxonomicallyAmbiguousRegion,
+        SiteKind::AbandonedInstitution,
+    ];
+
+    // Collect valid placement positions (not deep water, not shallow water)
+    let mut candidates: Vec<(u32, u32)> = Vec::new();
+    for y in 1..MAP_HEIGHT - 1 {
+        for x in 1..MAP_WIDTH - 1 {
+            let t = terrain[y][x];
+            if t != Terrain::DeepWater && t != Terrain::ShallowWater {
+                candidates.push((x as u32, y as u32));
+            }
+        }
+    }
+
+    let min_dist: u32 = 6;
+    let mut attempts = 0;
+
+    while sites.len() < count && attempts < 500 {
+        attempts += 1;
+        let (x, y) = candidates[rng.gen_range(0..candidates.len())];
+
+        // Check distance from existing sites
+        let too_close = sites.iter().any(|s: &Site| {
+            let dx = (s.grid_x as i32 - x as i32).unsigned_abs();
+            let dy = (s.grid_y as i32 - y as i32).unsigned_abs();
+            dx + dy < min_dist
+        });
+        if too_close {
+            continue;
+        }
+
+        let kind = if sites.len() < guaranteed.len() {
+            guaranteed[sites.len()].clone()
+        } else {
+            random_pool[rng.gen_range(0..random_pool.len())].clone()
+        };
+        let id = sites.len() as u64;
+
+        // Name the site
+        let phoneme_idx = rng.gen_range(0..phonemes.len());
+        let name = generate_site_name(&kind, &phonemes[phoneme_idx], rng);
+        let origin = generate_origin(&kind, rng);
+
+        // Dungeons get 2-4 floors; other sites get 1
+        let floor_count = match kind {
+            SiteKind::Dungeon => rng.gen_range(2..=4),
+            SiteKind::Ruin => rng.gen_range(1..=2),
+            _ => 1,
+        };
+
+        let mut floors = Vec::with_capacity(floor_count);
+        for depth in 0..floor_count {
+            floors.push(generate_floor(depth, depth == floor_count - 1, rng));
+        }
+
+        // Some sites are controlled by an existing institution
+        let controlling_faction = if !institutions.is_empty() && rng.gen_bool(0.4) {
+            let (id, _) = &institutions[rng.gen_range(0..institutions.len())];
+            Some(*id)
+        } else {
+            None
+        };
+
+        let history_entry = format!("Discovered at tick 0. {}", origin);
+
+        sites.push(Site {
+            id,
+            name,
+            kind,
+            origin,
+            grid_x: x,
+            grid_y: y,
+            floors,
+            population: Vec::new(),
+            artifacts: Vec::new(),
+            history: vec![history_entry],
+            controlling_faction,
+        });
+    }
+
+    sites
+}
+
+/// Generate a name for a site based on its kind.
+fn generate_site_name(kind: &SiteKind, set: &name_gen::PhonemeSet, rng: &mut StdRng) -> String {
+    let cultural_word = name_gen::generate_name_part_public(set, 1, 2, rng);
+
+    match kind {
+        SiteKind::Dungeon => {
+            let prefixes = [
+                "The Vaults of", "The Warrens of", "The Crypts of",
+                "The Deeps of", "The Cellars of", "The Labyrinth of",
+            ];
+            format!("{} {}", prefixes[rng.gen_range(0..prefixes.len())], cultural_word)
+        }
+        SiteKind::Ruin => {
+            let prefixes = [
+                "The Ruins of", "The Remnants of", "Old",
+                "The Fallen Halls of", "The Wreckage of",
+            ];
+            format!("{} {}", prefixes[rng.gen_range(0..prefixes.len())], cultural_word)
+        }
+        SiteKind::Shrine => {
+            let prefixes = [
+                "The Shrine of", "The Sanctum of", "The Altar of",
+                "The Chapel of the", "The Reliquary of",
+            ];
+            let adj = ["Ossified", "Provisional", "Accumulated", "Persistent", "Undisclosed"];
+            format!("{} {} {}", prefixes[rng.gen_range(0..prefixes.len())],
+                    adj[rng.gen_range(0..adj.len())], cultural_word)
+        }
+        SiteKind::BureaucraticAnnex => {
+            let prefixes = [
+                "The Annex of", "The Sub-Office of", "The Auxiliary Bureau of",
+                "The Satellite Registry of", "The Outpost of the Department of",
+            ];
+            let nouns = ["Permits", "Reclassifications", "Deferred Obligations", "Archival Disputes", "Procedural Overflow"];
+            format!("{} {}", prefixes[rng.gen_range(0..prefixes.len())], nouns[rng.gen_range(0..nouns.len())])
+        }
+        SiteKind::ControversialTombsite => {
+            let prefixes = [
+                "The Contested Tomb of", "The Disputed Resting Place of",
+                "The Grave of", "The Mausoleum of",
+            ];
+            format!("{} {}", prefixes[rng.gen_range(0..prefixes.len())], cultural_word)
+        }
+        SiteKind::TaxonomicallyAmbiguousRegion => {
+            let forms = [
+                format!("The {} Anomaly", cultural_word),
+                format!("The Unclassified Expanse of {}", cultural_word),
+                format!("Zone {}: Taxonomic Status Pending", rng.gen_range(7..99)),
+                format!("The {} Irregularity", cultural_word),
+            ];
+            forms[rng.gen_range(0..forms.len())].clone()
+        }
+        SiteKind::AbandonedInstitution => {
+            let prefixes = [
+                "The Former Offices of the", "The Defunct", "The Abandoned Chambers of the",
+                "What Remains of the", "The Shuttered",
+            ];
+            let bodies = [
+                "Bureau of Unresolved Matters", "Commission on Prior Obligations",
+                "Registry of Forgotten Claims", "Board of Discontinued Services",
+                "Office of Terminal Appointments",
+            ];
+            format!("{} {}", prefixes[rng.gen_range(0..prefixes.len())], bodies[rng.gen_range(0..bodies.len())])
+        }
+    }
+}
+
+/// Generate an origin story for a site.
+fn generate_origin(kind: &SiteKind, rng: &mut StdRng) -> String {
+    match kind {
+        SiteKind::Dungeon => {
+            let origins = [
+                "Excavated by an institution that no longer exists, for purposes that were never formally documented.",
+                "Originally a mine. The miners found something. The records do not specify what.",
+                "Constructed as a secure repository for objects of disputed provenance.",
+                "Built by parties unknown, at a date the archaeologists continue to argue about.",
+                "A natural cave system that was expanded with evident purpose but unclear intent.",
+            ];
+            origins[rng.gen_range(0..origins.len())].to_string()
+        }
+        SiteKind::Ruin => {
+            let origins = [
+                "Once a settlement of some consequence. Its decline was neither sudden nor well-documented.",
+                "Destroyed during an institutional dispute that escalated beyond administrative resolution.",
+                "Abandoned after a census revealed the population had already left.",
+                "Collapsed due to what the official report describes as 'structural disagreement.'",
+            ];
+            origins[rng.gen_range(0..origins.len())].to_string()
+        }
+        SiteKind::Shrine => {
+            let origins = [
+                "Erected to honor a principle that the builders could not fully articulate.",
+                "Built at the site of an event whose nature is disputed by all surviving accounts.",
+                "Maintained by a succession of custodians who each understood its purpose differently.",
+            ];
+            origins[rng.gen_range(0..origins.len())].to_string()
+        }
+        SiteKind::BureaucraticAnnex => {
+            let origins = [
+                "Established when the primary office ran out of filing space.",
+                "Created to process a category of requests that no other office would accept.",
+                "Founded during an administrative reorganization that was itself reorganized before completion.",
+            ];
+            origins[rng.gen_range(0..origins.len())].to_string()
+        }
+        SiteKind::ControversialTombsite => {
+            let origins = [
+                "The occupant's identity is disputed. Three factions each claim it as their own.",
+                "Burial here was conducted without the required permits. The permits remain unfiled.",
+                "The tomb predates the civilization that claims to have built it.",
+            ];
+            origins[rng.gen_range(0..origins.len())].to_string()
+        }
+        SiteKind::TaxonomicallyAmbiguousRegion => {
+            let origins = [
+                "The terrain here defies standard classification. Several surveying expeditions have returned with contradictory reports.",
+                "Something happened here that altered the local environment in ways that remain formally undescribed.",
+                "The region was omitted from official maps, reportedly by accident, for several consecutive editions.",
+            ];
+            origins[rng.gen_range(0..origins.len())].to_string()
+        }
+        SiteKind::AbandonedInstitution => {
+            let origins = [
+                "Its staff departed when their mandate expired. The mandate was never formally concluded.",
+                "Closed during budget reconciliation. The reconciliation is technically still in progress.",
+                "Abandoned after the last employee was transferred to a department that did not exist.",
+            ];
+            origins[rng.gen_range(0..origins.len())].to_string()
+        }
+    }
+}
+
+/// Generate a single floor using room-and-corridor algorithm.
+fn generate_floor(depth: usize, is_last: bool, rng: &mut StdRng) -> Floor {
+    let mut tiles = vec![vec![Tile::Wall; FLOOR_WIDTH]; FLOOR_HEIGHT];
+    let mut rooms = Vec::new();
+
+    let room_count = rng.gen_range(4..=8);
+    let mut attempts = 0;
+
+    while rooms.len() < room_count && attempts < 200 {
+        attempts += 1;
+
+        let w = rng.gen_range(4..=10);
+        let h = rng.gen_range(3..=6);
+        let x = rng.gen_range(1..FLOOR_WIDTH.saturating_sub(w + 1));
+        let y = rng.gen_range(1..FLOOR_HEIGHT.saturating_sub(h + 1));
+
+        // Check overlap with existing rooms (with 1-tile padding)
+        let overlaps = rooms.iter().any(|r: &Room| {
+            x < r.x + r.w + 1 && x + w + 1 > r.x && y < r.y + r.h + 1 && y + h + 1 > r.y
+        });
+        if overlaps {
+            continue;
+        }
+
+        let purpose = match rng.gen_range(0..6) {
+            0 => RoomPurpose::Storage,
+            1 => RoomPurpose::Ritual,
+            2 => RoomPurpose::Administrative,
+            3 => RoomPurpose::Habitation,
+            4 => RoomPurpose::Trophy,
+            _ => RoomPurpose::Disputed,
+        };
+
+        // Carve the room
+        for ry in y..y + h {
+            for rx in x..x + w {
+                tiles[ry][rx] = Tile::Floor;
+            }
+        }
+
+        rooms.push(Room { x, y, w, h, purpose });
+    }
+
+    // Connect rooms with corridors
+    for i in 1..rooms.len() {
+        let (cx1, cy1) = rooms[i - 1].center();
+        let (cx2, cy2) = rooms[i].center();
+        carve_corridor(&mut tiles, cx1, cy1, cx2, cy2, rng);
+    }
+
+    // Place doors at corridor-room junctions
+    place_doors(&mut tiles, &rooms, rng);
+
+    // Place stairs: up on non-first floors, down on non-last floors
+    if depth > 0 {
+        if let Some(room) = rooms.first() {
+            let (cx, cy) = room.center();
+            tiles[cy][cx] = Tile::StairUp;
+        }
+    }
+    if !is_last {
+        if let Some(room) = rooms.last() {
+            let (cx, cy) = room.center();
+            tiles[cy][cx] = Tile::StairDown;
+        }
+    }
+
+    // Scatter a few water/pit hazards
+    let hazard_count = rng.gen_range(0..=3);
+    for _ in 0..hazard_count {
+        let rx = rng.gen_range(1..FLOOR_WIDTH - 1);
+        let ry = rng.gen_range(1..FLOOR_HEIGHT - 1);
+        if tiles[ry][rx] == Tile::Floor {
+            tiles[ry][rx] = if rng.gen_bool(0.5) { Tile::Water } else { Tile::Pit };
+        }
+    }
+
+    Floor {
+        depth,
+        tiles,
+        rooms,
+    }
+}
+
+/// Carve an L-shaped corridor between two points.
+fn carve_corridor(tiles: &mut Vec<Vec<Tile>>, x1: usize, y1: usize, x2: usize, y2: usize, rng: &mut StdRng) {
+    // Randomly choose horizontal-first or vertical-first
+    if rng.gen_bool(0.5) {
+        carve_h(tiles, x1, x2, y1);
+        carve_v(tiles, y1, y2, x2);
+    } else {
+        carve_v(tiles, y1, y2, x1);
+        carve_h(tiles, x1, x2, y2);
+    }
+}
+
+fn carve_h(tiles: &mut Vec<Vec<Tile>>, x1: usize, x2: usize, y: usize) {
+    let (start, end) = if x1 < x2 { (x1, x2) } else { (x2, x1) };
+    for x in start..=end {
+        if y < FLOOR_HEIGHT && x < FLOOR_WIDTH {
+            if tiles[y][x] == Tile::Wall {
+                tiles[y][x] = Tile::Floor;
+            }
+        }
+    }
+}
+
+fn carve_v(tiles: &mut Vec<Vec<Tile>>, y1: usize, y2: usize, x: usize) {
+    let (start, end) = if y1 < y2 { (y1, y2) } else { (y2, y1) };
+    for y in start..=end {
+        if y < FLOOR_HEIGHT && x < FLOOR_WIDTH {
+            if tiles[y][x] == Tile::Wall {
+                tiles[y][x] = Tile::Floor;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::SeedableRng;
+
+    #[test]
+    fn dungeon_floors_are_2_to_4() {
+        let phonemes = crate::gen::name_gen::load_phoneme_data();
+        let terrain = vec![vec![Terrain::Plains; MAP_WIDTH]; MAP_HEIGHT];
+        let institutions = vec![];
+
+        // Test 20 different seeds
+        for seed in 0..20 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let sites = generate_sites(&terrain, &phonemes, &institutions, &mut rng);
+
+            for site in &sites {
+                let floors = site.floors.len();
+                match site.kind {
+                    SiteKind::Dungeon => {
+                        assert!(
+                            floors >= 2 && floors <= 4,
+                            "Seed {}: Dungeon '{}' has {} floors (expected 2-4)",
+                            seed, site.name, floors
+                        );
+                    }
+                    SiteKind::Ruin => {
+                        assert!(
+                            floors >= 1 && floors <= 2,
+                            "Seed {}: Ruin '{}' has {} floors (expected 1-2)",
+                            seed, site.name, floors
+                        );
+                    }
+                    _ => {
+                        assert_eq!(
+                            floors, 1,
+                            "Seed {}: {} '{}' has {} floors (expected 1)",
+                            seed, site.kind.label(), site.name, floors
+                        );
+                    }
+                }
+            }
+
+            // Verify at least 2 dungeons exist (guaranteed slots)
+            let dungeon_count = sites.iter().filter(|s| s.kind == SiteKind::Dungeon).count();
+            assert!(
+                dungeon_count >= 2,
+                "Seed {}: only {} dungeons (expected at least 2)",
+                seed, dungeon_count
+            );
+        }
+    }
+}
+
+/// Place doors at transitions between corridors and rooms.
+fn place_doors(tiles: &mut Vec<Vec<Tile>>, rooms: &[Room], rng: &mut StdRng) {
+    for room in rooms {
+        // Check room edges for corridor entrances
+        let edges = [
+            // Top edge
+            (room.x..room.x + room.w).map(|x| (x, room.y.wrapping_sub(1))).collect::<Vec<_>>(),
+            // Bottom edge
+            (room.x..room.x + room.w).map(|x| (x, room.y + room.h)).collect::<Vec<_>>(),
+            // Left edge
+            (room.y..room.y + room.h).map(|y| (room.x.wrapping_sub(1), y)).collect::<Vec<_>>(),
+            // Right edge
+            (room.y..room.y + room.h).map(|y| (room.x + room.w, y)).collect::<Vec<_>>(),
+        ];
+
+        for edge in &edges {
+            for &(ex, ey) in edge {
+                if ey >= FLOOR_HEIGHT || ex >= FLOOR_WIDTH {
+                    continue;
+                }
+                if tiles[ey][ex] == Tile::Floor {
+                    // This is a corridor tile adjacent to a room wall — potential door spot
+                    // Only place a door ~40% of the time to keep things varied
+                    if rng.gen_bool(0.4) {
+                        tiles[ey][ex] = Tile::Door;
+                    }
+                }
+            }
+        }
+    }
+}

@@ -3,13 +3,14 @@ use rand::{Rng, SeedableRng};
 
 use std::collections::HashMap;
 
-use crate::gen::name_gen;
+use crate::gen::{name_gen, dungeon_gen};
 use crate::sim::agent::{Agent, Disposition, Goal};
 use crate::sim::institution::{Institution, InstitutionKind};
+use crate::sim::site::Site;
 use crate::sim::world::*;
 
 /// Generate a complete world from a seed.
-pub fn generate_world(seed: u64) -> (World, Vec<Agent>, Vec<Institution>) {
+pub fn generate_world(seed: u64) -> (World, Vec<Agent>, Vec<Institution>, Vec<Site>) {
     let mut rng = StdRng::seed_from_u64(seed);
     let phonemes = name_gen::load_phoneme_data();
 
@@ -33,6 +34,10 @@ pub fn generate_world(seed: u64) -> (World, Vec<Agent>, Vec<Institution>) {
     let mut agents = generate_agents(&settlements, &peoples, &phonemes, &mut rng);
     let institutions = generate_institutions(&settlements, &peoples, &phonemes, &mut agents, &mut rng);
 
+    // Generate sites, passing institution info for controlling faction assignment
+    let inst_info: Vec<(u64, String)> = institutions.iter().map(|i| (i.id, i.name.clone())).collect();
+    let sites = dungeon_gen::generate_sites(&terrain, &phonemes, &inst_info, &mut rng);
+
     let world = World {
         seed,
         name,
@@ -42,7 +47,7 @@ pub fn generate_world(seed: u64) -> (World, Vec<Agent>, Vec<Institution>) {
         tick: 0,
     };
 
-    (world, agents, institutions)
+    (world, agents, institutions, sites)
 }
 
 // ---------------------------------------------------------------------------

@@ -543,6 +543,118 @@ pub fn draw_follow_institution_pick(frame: &mut Frame, sim: &SimState, selected:
     frame.render_widget(widget, area);
 }
 
+/// Draw the site list overlay (s key — browsable list of all sites).
+pub fn draw_site_list(frame: &mut Frame, sim: &SimState, selected: usize) {
+    let area = centered_rect(70, 65, frame.area());
+    frame.render_widget(Clear, area);
+
+    let inner_height = area.height.saturating_sub(5) as usize;
+
+    let mut lines: Vec<Line> = vec![
+        Line::from(Span::styled(
+            format!(" {} sites discovered", sim.sites.len()),
+            Style::default().fg(Color::White),
+        )),
+        Line::from(""),
+    ];
+
+    if sim.sites.is_empty() {
+        lines.push(Line::from(Span::styled(" No sites discovered.", Style::default().fg(Color::DarkGray))));
+    } else {
+        // Each entry takes 2 lines (name + detail), selected takes 3 (+ origin).
+        // Budget lines for the scrollable area.
+        let available_lines = inner_height.saturating_sub(4); // header + footer
+        // Estimate ~3 lines per entry to be safe
+        let entries_per_page = (available_lines / 3).max(1);
+
+        let scroll_start = if selected >= entries_per_page {
+            selected - entries_per_page + 1
+        } else {
+            0
+        };
+
+        // Render entries, tracking how many display lines we've used
+        let mut lines_used: usize = 0;
+        let mut last_shown = scroll_start;
+
+        for i in scroll_start..sim.sites.len() {
+            let site = &sim.sites[i];
+            let is_selected = i == selected;
+            let entry_lines = if is_selected { 3 } else { 2 };
+
+            // Stop if we'd overflow the available space
+            if lines_used + entry_lines > available_lines {
+                break;
+            }
+
+            let prefix = if is_selected { " > " } else { "   " };
+            let name_color = if is_selected { Color::Green } else { site.kind.map_color() };
+
+            lines.push(Line::from(vec![
+                Span::styled(prefix, Style::default()),
+                Span::styled(&site.name, Style::default().fg(name_color)),
+            ]));
+
+            let faction_label = if let Some(fid) = site.controlling_faction {
+                sim.institutions.iter()
+                    .find(|inst| inst.id == fid)
+                    .map(|inst| format!("Controlled by {}", inst.name))
+                    .unwrap_or_else(|| "Unclaimed".to_string())
+            } else {
+                "Unclaimed".to_string()
+            };
+
+            let detail = format!(
+                "     {} | ({},{}) | {} floor{} | {}",
+                site.kind.label(),
+                site.grid_x, site.grid_y,
+                site.floors.len(),
+                if site.floors.len() == 1 { "" } else { "s" },
+                faction_label,
+            );
+            lines.push(Line::from(Span::styled(
+                detail,
+                Style::default().fg(Color::DarkGray),
+            )));
+
+            if is_selected {
+                lines.push(Line::from(Span::styled(
+                    format!("     {}", site.origin),
+                    Style::default().fg(Color::DarkGray),
+                )));
+            }
+
+            lines_used += entry_lines;
+            last_shown = i + 1;
+        }
+
+        if last_shown < sim.sites.len() {
+            lines.push(Line::from(Span::styled(
+                format!("  ... {} more below", sim.sites.len() - last_shown),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+        if scroll_start > 0 {
+            // Insert a "more above" hint after the header
+            lines.insert(2, Line::from(Span::styled(
+                format!("  ... {} above", scroll_start),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(" Up/Down=browse  ENTER=view site  ESC=close", Style::default().fg(Color::DarkGray))));
+
+    let block = Block::default()
+        .title(" SITES ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Red));
+
+    let widget = Paragraph::new(lines).block(block);
+    frame.render_widget(widget, area);
+}
+
 /// Draw the help overlay showing all keybindings.
 pub fn draw_help(frame: &mut Frame) {
     let area = centered_rect(55, 75, frame.area());
@@ -567,6 +679,7 @@ pub fn draw_help(frame: &mut Frame) {
         Line::from(vec![Span::styled("   Tab      ", key_style), Span::styled("Browse agent list", desc_style)]),
         Line::from(vec![Span::styled("   f        ", key_style), Span::styled("Follow agent or institution", desc_style)]),
         Line::from(vec![Span::styled("   F        ", key_style), Span::styled("View faction list", desc_style)]),
+        Line::from(vec![Span::styled("   s        ", key_style), Span::styled("Browse sites (dungeons, ruins, etc.)", desc_style)]),
         Line::from(vec![Span::styled("   PgUp/Dn  ", key_style), Span::styled("Scroll log", desc_style)]),
         Line::from(""),
         Line::from(Span::styled(" EXPORT & SAVE", header_style)),
