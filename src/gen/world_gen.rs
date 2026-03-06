@@ -10,10 +10,96 @@ use crate::sim::institution::{Institution, InstitutionKind};
 use crate::sim::site::Site;
 use crate::sim::world::*;
 
-/// Generate a complete world from a seed.
-pub fn generate_world(seed: u64) -> (World, Vec<Agent>, Vec<Institution>, Vec<Site>, Vec<Artifact>) {
+/// Flavor presets that bias world parameter generation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum WorldFlavor {
+    TheLongBureaucracy,
+    TheBurningProvinces,
+    TheDeepTaxonomy,
+    TheConspiratorialAge,
+    Unguided,
+}
+
+impl WorldFlavor {
+    /// Get flavor by index (matches menu order).
+    pub fn from_index(i: usize) -> Self {
+        match i {
+            0 => WorldFlavor::TheLongBureaucracy,
+            1 => WorldFlavor::TheBurningProvinces,
+            2 => WorldFlavor::TheDeepTaxonomy,
+            3 => WorldFlavor::TheConspiratorialAge,
+            _ => WorldFlavor::Unguided,
+        }
+    }
+}
+
+/// Generate world parameters based on flavor preset, with variance.
+fn generate_params(flavor: WorldFlavor, rng: &mut StdRng) -> WorldParams {
+    // Helper: generate a biased value within a range
+    let biased = |center: f32, spread: f32, rng: &mut StdRng| -> f32 {
+        let v = center + rng.gen_range(-spread..=spread);
+        v.clamp(0.0, 1.0)
+    };
+    let biased_rate = |center: f32, spread: f32, rng: &mut StdRng| -> f32 {
+        let v = center + rng.gen_range(-spread..=spread);
+        v.clamp(0.1, 3.0)
+    };
+
+    match flavor {
+        WorldFlavor::TheLongBureaucracy => WorldParams {
+            temporal_rate: biased_rate(0.4, 0.15, rng),
+            political_churn: biased(0.7, 0.15, rng),
+            cosmological_density: biased(0.25, 0.15, rng),
+            ecological_volatility: biased(0.2, 0.1, rng),
+            narrative_register: NarrativeRegister::Bureaucratic,
+            weirdness_coefficient: biased(0.4, 0.2, rng),
+        },
+        WorldFlavor::TheBurningProvinces => WorldParams {
+            temporal_rate: biased_rate(2.0, 0.5, rng),
+            political_churn: biased(0.8, 0.1, rng),
+            cosmological_density: biased(0.4, 0.2, rng),
+            ecological_volatility: biased(0.75, 0.15, rng),
+            narrative_register: NarrativeRegister::Ominous,
+            weirdness_coefficient: biased(0.5, 0.2, rng),
+        },
+        WorldFlavor::TheDeepTaxonomy => WorldParams {
+            temporal_rate: biased_rate(1.0, 0.3, rng),
+            political_churn: biased(0.4, 0.15, rng),
+            cosmological_density: biased(0.5, 0.2, rng),
+            ecological_volatility: biased(0.7, 0.15, rng),
+            narrative_register: NarrativeRegister::Clinical,
+            weirdness_coefficient: biased(0.7, 0.15, rng),
+        },
+        WorldFlavor::TheConspiratorialAge => WorldParams {
+            temporal_rate: biased_rate(1.2, 0.3, rng),
+            political_churn: biased(0.7, 0.15, rng),
+            cosmological_density: biased(0.8, 0.1, rng),
+            ecological_volatility: biased(0.3, 0.15, rng),
+            narrative_register: NarrativeRegister::Conspiratorial,
+            weirdness_coefficient: biased(0.6, 0.2, rng),
+        },
+        WorldFlavor::Unguided => WorldParams {
+            temporal_rate: biased_rate(1.0, 0.9, rng),
+            political_churn: rng.gen_range(0.1..=0.9),
+            cosmological_density: rng.gen_range(0.05..=0.95),
+            ecological_volatility: rng.gen_range(0.1..=0.9),
+            narrative_register: match rng.gen_range(0..5) {
+                0 => NarrativeRegister::Clinical,
+                1 => NarrativeRegister::Lyrical,
+                2 => NarrativeRegister::Bureaucratic,
+                3 => NarrativeRegister::Ominous,
+                _ => NarrativeRegister::Conspiratorial,
+            },
+            weirdness_coefficient: rng.gen_range(0.1..=0.9),
+        },
+    }
+}
+
+/// Generate a complete world from a seed and flavor preset.
+pub fn generate_world(seed: u64, flavor: WorldFlavor) -> (World, Vec<Agent>, Vec<Institution>, Vec<Site>, Vec<Artifact>) {
     let mut rng = StdRng::seed_from_u64(seed);
     let phonemes = name_gen::load_phoneme_data();
+    let params = generate_params(flavor, &mut rng);
 
     let name = name_gen::generate_world_name(&phonemes, &mut rng);
     let heightmap = generate_heightmap(&mut rng);
@@ -69,7 +155,7 @@ pub fn generate_world(seed: u64) -> (World, Vec<Agent>, Vec<Institution>, Vec<Si
         });
     }
 
-    let institutions = generate_institutions(&settlements, &peoples, &phonemes, &mut agents, &mut rng);
+    let institutions = generate_institutions(&settlements, &peoples, &phonemes, &mut agents, &params, &mut rng);
 
     // Generate sites, passing institution info for controlling faction assignment
     let inst_info: Vec<(u64, String)> = institutions.iter().map(|i| (i.id, i.name.clone())).collect();
@@ -112,6 +198,7 @@ pub fn generate_world(seed: u64) -> (World, Vec<Agent>, Vec<Institution>, Vec<Si
         settlements,
         peoples,
         tick: 0,
+        params,
     };
 
     (world, agents, institutions, sites, artifacts)
@@ -355,22 +442,34 @@ fn generate_institutions(
     peoples: &[People],
     phonemes: &[name_gen::PhonemeSet],
     agents: &mut [Agent],
+    params: &WorldParams,
     rng: &mut StdRng,
 ) -> Vec<Institution> {
-    let count = rng.gen_range(4..=8);
+    // High political churn = more institutions at start
+    let base_count = 4 + (params.political_churn * 6.0) as usize; // 4-10
+    let count = rng.gen_range(base_count.saturating_sub(1)..=base_count.min(12));
     let mut institutions = Vec::new();
-    let all_kinds = [
-        InstitutionKind::Guild,
-        InstitutionKind::Government,
-        InstitutionKind::Cult,
-        InstitutionKind::MercenaryCompany,
-        InstitutionKind::RegulatoryBody,
-        InstitutionKind::SecretSociety,
-    ];
 
     for i in 0..count {
         let people_id = i % peoples.len();
-        let kind = all_kinds[rng.gen_range(0..all_kinds.len())].clone();
+        // High cosmological_density biases toward SecretSociety and Cult
+        let kind = if params.cosmological_density > 0.6 && rng.gen_bool(0.4) {
+            if rng.gen_bool(0.5) {
+                InstitutionKind::SecretSociety
+            } else {
+                InstitutionKind::Cult
+            }
+        } else {
+            let all_kinds = [
+                InstitutionKind::Guild,
+                InstitutionKind::Government,
+                InstitutionKind::Cult,
+                InstitutionKind::MercenaryCompany,
+                InstitutionKind::RegulatoryBody,
+                InstitutionKind::SecretSociety,
+            ];
+            all_kinds[rng.gen_range(0..all_kinds.len())].clone()
+        };
         let name = name_gen::generate_institution_name(&kind, phonemes, people_id, rng);
         let charter = name_gen::generate_charter(&kind, rng);
         let actual_function = name_gen::generate_actual_function(&kind, rng);

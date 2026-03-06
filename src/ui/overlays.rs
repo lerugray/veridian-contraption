@@ -880,7 +880,7 @@ fn build_world_report_lines(sim: &SimState) -> Vec<Line<'static>> {
     ]));
     lines.push(Line::from(""));
 
-    // World parameters (placeholder values — full parametric gen is Phase 4)
+    // World parameters — generated per world
     lines.push(Line::from(Span::styled(
         "  OPERATIONAL PARAMETERS",
         header_style,
@@ -889,24 +889,22 @@ fn build_world_report_lines(sim: &SimState) -> Vec<Line<'static>> {
         "  ─────────────────────────────────────────",
         dim_style,
     )));
-    let params = [
-        ("  Temporal Rate:         ", "Standard"),
-        ("  Political Churn:       ", "Moderate"),
-        ("  Cosmological Density:  ", "Low-Nominal"),
-        ("  Ecological Volatility: ", "Unremarkable"),
-        ("  Narrative Register:    ", "Bureaucratic"),
-        ("  Weirdness Coefficient: ", "Within Acceptable Bounds"),
+    let p = &w.params;
+    use crate::sim::world::WorldParams;
+    let param_display = [
+        ("  Temporal Rate:         ", format!("{} ({:.2}x)", p.describe_temporal_rate(), p.temporal_rate)),
+        ("  Political Churn:       ", format!("{} ({:.0}%)", WorldParams::describe_level(p.political_churn), p.political_churn * 100.0)),
+        ("  Cosmological Density:  ", format!("{} ({:.0}%)", WorldParams::describe_level(p.cosmological_density), p.cosmological_density * 100.0)),
+        ("  Ecological Volatility: ", format!("{} ({:.0}%)", WorldParams::describe_level(p.ecological_volatility), p.ecological_volatility * 100.0)),
+        ("  Narrative Register:    ", p.narrative_register.label().to_string()),
+        ("  Weirdness Coefficient: ", format!("{} ({:.0}%)", WorldParams::describe_level(p.weirdness_coefficient), p.weirdness_coefficient * 100.0)),
     ];
-    for (lbl, val) in params {
+    for (lbl, val) in &param_display {
         lines.push(Line::from(vec![
-            Span::styled(lbl, label_style),
-            Span::styled(val, value_style),
+            Span::styled(lbl.to_string(), label_style),
+            Span::styled(val.clone(), value_style),
         ]));
     }
-    lines.push(Line::from(Span::styled(
-        "  (Full parametric variance pending Phase 4 implementation.)",
-        dim_style,
-    )));
     lines.push(Line::from(""));
 
     // Peoples

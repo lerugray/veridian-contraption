@@ -2,10 +2,10 @@ use rand::rngs::StdRng;
 use rand::Rng;
 
 use crate::sim::event::EventType;
-use crate::sim::world::World;
+use crate::sim::world::{NarrativeRegister, World};
 
 // ---------------------------------------------------------------------------
-// Shared word lists — bureaucratic flavor
+// Shared word lists — bureaucratic flavor (default)
 // ---------------------------------------------------------------------------
 
 const PROCEDURAL_VERBS: &[&str] = &[
@@ -40,121 +40,206 @@ const ABSURDIST_CAUSES: &[&str] = &[
     "the spontaneous reclassification of adjacent terrain",
 ];
 
+// ---------------------------------------------------------------------------
+// Register-specific word lists
+// ---------------------------------------------------------------------------
+
+const CLINICAL_VERBS: &[&str] = &[
+    "observed", "documented", "catalogued", "recorded", "measured",
+    "classified", "assessed", "registered", "indexed", "annotated",
+];
+
+const CLINICAL_NOUNS: &[&str] = &[
+    "observation", "specimen report", "field notation", "data entry",
+    "assessment", "inventory", "classification", "specimen", "sample",
+    "survey record", "index entry", "preliminary finding",
+];
+
+const LYRICAL_VERBS: &[&str] = &[
+    "whispered", "drifted", "lingered", "unfolded", "stirred",
+    "settled like dust", "rose unbidden", "wound its way through",
+    "scattered", "gathered",
+];
+
+const LYRICAL_NOUNS: &[&str] = &[
+    "murmur", "echo", "fragment", "remnant", "trace",
+    "silence", "interlude", "tide", "passage", "impression",
+];
+
+const OMINOUS_VERBS: &[&str] = &[
+    "darkened", "consumed", "unraveled", "severed", "condemned",
+    "obliterated from record", "struck from memory", "sealed",
+    "rendered void", "annulled",
+];
+
+const OMINOUS_NOUNS: &[&str] = &[
+    "decree", "portent", "omen", "reckoning", "judgment",
+    "sentence", "proscription", "edict", "terminus", "annihilation notice",
+];
+
+const CONSPIRATORIAL_VERBS: &[&str] = &[
+    "intercepted", "concealed", "redirected", "substituted", "encrypted",
+    "falsified", "redacted", "implicated", "surveilled", "compromised",
+];
+
+const CONSPIRATORIAL_NOUNS: &[&str] = &[
+    "dossier", "dead drop", "cipher", "asset", "cell",
+    "communiqué", "cover identity", "safe house", "handler",
+    "front organization", "surveillance report", "sealed file",
+];
+
+/// Pick a verb appropriate to the world's narrative register.
+fn pick_verb<'a>(register: NarrativeRegister, rng: &mut StdRng) -> &'a str {
+    match register {
+        NarrativeRegister::Clinical => pick(CLINICAL_VERBS, rng),
+        NarrativeRegister::Lyrical => pick(LYRICAL_VERBS, rng),
+        NarrativeRegister::Ominous => pick(OMINOUS_VERBS, rng),
+        NarrativeRegister::Conspiratorial => pick(CONSPIRATORIAL_VERBS, rng),
+        NarrativeRegister::Bureaucratic => pick(PROCEDURAL_VERBS, rng),
+    }
+}
+
+/// Pick a noun appropriate to the world's narrative register.
+fn pick_noun<'a>(register: NarrativeRegister, rng: &mut StdRng) -> &'a str {
+    match register {
+        NarrativeRegister::Clinical => pick(CLINICAL_NOUNS, rng),
+        NarrativeRegister::Lyrical => pick(LYRICAL_NOUNS, rng),
+        NarrativeRegister::Ominous => pick(OMINOUS_NOUNS, rng),
+        NarrativeRegister::Conspiratorial => pick(CONSPIRATORIAL_NOUNS, rng),
+        NarrativeRegister::Bureaucratic => pick(BUREAUCRATIC_NOUNS, rng),
+    }
+}
+
+/// Pick a cause — high weirdness increases absurdist causes appearing.
+fn pick_cause<'a>(weirdness: f32, rng: &mut StdRng) -> &'a str {
+    // Higher weirdness = always absurdist; lower weirdness = sometimes mundane
+    if weirdness > 0.5 || rng.gen_bool(weirdness as f64) {
+        pick(ABSURDIST_CAUSES, rng)
+    } else {
+        pick(&["routine factors", "natural causes", "expected developments",
+               "ordinary circumstances", "unremarkable conditions"], rng)
+    }
+}
+
 fn pick<'a>(options: &'a [&'a str], rng: &mut StdRng) -> &'a str {
     options[rng.gen_range(0..options.len())]
 }
 
 /// Generate a subordinate clause to embed in a longer sentence.
-fn subordinate_clause(name: &str, loc: &str, rng: &mut StdRng) -> String {
+/// Uses narrative register to pick vocabulary.
+fn subordinate_clause(_name: &str, loc: &str, reg: NarrativeRegister, weirdness: f32, rng: &mut StdRng) -> String {
     match rng.gen_range(0..12) {
-        0 => format!("whose previous {} remained unresolved", pick(BUREAUCRATIC_NOUNS, rng)),
-        1 => format!("about whom the {} of {} had {} concerns", pick(BUREAUCRATIC_NOUNS, rng), loc, pick(PROCEDURAL_VERBS, rng)),
+        0 => format!("whose previous {} remained unresolved", pick_noun(reg, rng)),
+        1 => format!("about whom the {} of {} had {} concerns", pick_noun(reg, rng), loc, pick_verb(reg, rng)),
         2 => format!("whose standing in {} was a matter of some administrative ambiguity", loc),
-        3 => format!("who had been the subject of {} prior to the event in question", pick(BUREAUCRATIC_NOUNS, rng)),
-        4 => format!("whose documentation the office of {} had {} on three prior occasions", loc, pick(PROCEDURAL_VERBS, rng)),
-        5 => format!("against whom {} had been {} but never resolved", pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
-        6 => format!("whose file contained a marginal annotation reading 'see also: {}'", pick(ABSURDIST_CAUSES, rng)),
+        3 => format!("who had been the subject of {} prior to the event in question", pick_noun(reg, rng)),
+        4 => format!("whose documentation the office of {} had {} on three prior occasions", loc, pick_verb(reg, rng)),
+        5 => format!("against whom {} had been {} but never resolved", pick_noun(reg, rng), pick_verb(reg, rng)),
+        6 => format!("whose file contained a marginal annotation reading 'see also: {}'", pick_cause(weirdness, rng)),
         7 => format!("whom the records of {} listed under two distinct and contradictory entries", loc),
         8 => format!("whose relationship to the matter was described as 'provisional'"),
-        9 => format!("who had been {} by the relevant authorities {}", pick(PROCEDURAL_VERBS, rng), pick(TEMPORAL_HEDGES, rng)),
-        10 => format!("about whom {} had been filed regarding {}", pick(BUREAUCRATIC_NOUNS, rng), pick(ABSURDIST_CAUSES, rng)),
-        _ => format!("whose presence in {} the {} had not yet formally acknowledged", loc, pick(BUREAUCRATIC_NOUNS, rng)),
+        9 => format!("who had been {} by the relevant authorities {}", pick_verb(reg, rng), pick(TEMPORAL_HEDGES, rng)),
+        10 => format!("about whom {} had been filed regarding {}", pick_noun(reg, rng), pick_cause(weirdness, rng)),
+        _ => format!("whose presence in {} the {} had not yet formally acknowledged", loc, pick_noun(reg, rng)),
     }
 }
 
 /// Generate the prose description for an event.
+/// `register` and `weirdness` influence vocabulary and absurdity level.
 pub fn generate_description(
     event_type: &EventType,
     agent_name: Option<&str>,
     location_name: Option<&str>,
     _tick: u64,
     rng: &mut StdRng,
+    register: NarrativeRegister,
+    weirdness: f32,
 ) -> String {
     let loc = location_name.unwrap_or("an unregistered locality");
     let name = agent_name.unwrap_or("an unnamed party");
 
     match event_type {
         EventType::AgentDied => {
-            let sub = subordinate_clause(name, loc, rng);
+            let sub = subordinate_clause(name, loc, register, weirdness, rng);
             match rng.gen_range(0..7) {
-                0 => format!("{}, {}, ceased to be present in {}. No formal {} was opened.", name, sub, loc, pick(BUREAUCRATIC_NOUNS, rng)),
-                1 => format!("{}, formerly in good standing, was removed from the census of {}. A clerk {} the absence in the margin of an unrelated ledger.", name, loc, pick(PROCEDURAL_VERBS, rng)),
-                2 => format!("The {} of {} confirmed that {}, {}, is no longer extant. The relevant paperwork was completed {}.", pick(BUREAUCRATIC_NOUNS, rng), loc, name, sub, pick(TEMPORAL_HEDGES, rng)),
-                3 => format!("{} of {} expired, or was otherwise rendered absent. The vacancy has not yet been filled. The matter was {} under 'resolved by circumstance.'", name, loc, pick(PROCEDURAL_VERBS, rng)),
-                4 => format!("{}, whose debts were subsequently forgiven, ceased to occupy their census entry in {}. This was {} and promptly misfiled.", name, loc, pick(PROCEDURAL_VERBS, rng)),
+                0 => format!("{}, {}, ceased to be present in {}. No formal {} was opened.", name, sub, loc, pick_noun(register, rng)),
+                1 => format!("{}, formerly in good standing, was removed from the census of {}. A clerk {} the absence in the margin of an unrelated ledger.", name, loc, pick_verb(register, rng)),
+                2 => format!("The {} of {} confirmed that {}, {}, is no longer extant. The relevant paperwork was completed {}.", pick_noun(register, rng), loc, name, sub, pick(TEMPORAL_HEDGES, rng)),
+                3 => format!("{} of {} expired, or was otherwise rendered absent. The vacancy has not yet been filled. The matter was {} under 'resolved by circumstance.'", name, loc, pick_verb(register, rng)),
+                4 => format!("{}, whose debts were subsequently forgiven, ceased to occupy their census entry in {}. This was {} and promptly misfiled.", name, loc, pick_verb(register, rng)),
                 5 => format!("The continued existence of {} in {} was downgraded from 'confirmed' to 'discontinued.' The relevant authorities were not notified {}.", name, loc, pick(TEMPORAL_HEDGES, rng)),
-                _ => format!("{}, {}, was struck from the register of {}. The cause was attributed to {}.", name, sub, loc, pick(ABSURDIST_CAUSES, rng)),
+                _ => format!("{}, {}, was struck from the register of {}. The cause was attributed to {}.", name, sub, loc, pick_cause(weirdness, rng)),
             }
         }
 
         EventType::AgentArrived => {
-            let sub = subordinate_clause(name, loc, rng);
+            let sub = subordinate_clause(name, loc, register, weirdness, rng);
             match rng.gen_range(0..7) {
-                0 => format!("{} arrived at {} without prior notice or evident purpose. The local {} {} the arrival {}.", name, loc, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng), pick(TEMPORAL_HEDGES, rng)),
+                0 => format!("{} arrived at {} without prior notice or evident purpose. The local {} {} the arrival {}.", name, loc, pick_noun(register, rng), pick_verb(register, rng), pick(TEMPORAL_HEDGES, rng)),
                 1 => format!("{}, {}, appeared in {} bearing documentation of uncertain validity.", name, sub, loc),
-                2 => format!("The {} of {} recorded the arrival of {}, though the arrival itself was {} on procedural grounds.", pick(BUREAUCRATIC_NOUNS, rng), loc, name, pick(PROCEDURAL_VERBS, rng)),
-                3 => format!("{} entered {} with the air of someone who has been expected elsewhere. A {} was opened {}.", name, loc, pick(BUREAUCRATIC_NOUNS, rng), pick(TEMPORAL_HEDGES, rng)),
+                2 => format!("The {} of {} recorded the arrival of {}, though the arrival itself was {} on procedural grounds.", pick_noun(register, rng), loc, name, pick_verb(register, rng)),
+                3 => format!("{} entered {} with the air of someone who has been expected elsewhere. A {} was opened {}.", name, loc, pick_noun(register, rng), pick(TEMPORAL_HEDGES, rng)),
                 4 => format!("{}, {}, was provisionally noted in the register of {}. The notation included several caveats.", name, sub, loc),
-                5 => format!("{} arrived in {} claiming business with no one in particular. This claim was {} by the local office.", name, loc, pick(PROCEDURAL_VERBS, rng)),
-                _ => format!("The presence of {} was detected in {} by means of {}. A {} was {} accordingly.", name, loc, pick(ABSURDIST_CAUSES, rng), pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                5 => format!("{} arrived in {} claiming business with no one in particular. This claim was {} by the local office.", name, loc, pick_verb(register, rng)),
+                _ => format!("The presence of {} was detected in {} by means of {}. A {} was {} accordingly.", name, loc, pick_cause(weirdness, rng), pick_noun(register, rng), pick_verb(register, rng)),
             }
         }
 
         EventType::AgentDeparted => {
-            let sub = subordinate_clause(name, loc, rng);
+            let sub = subordinate_clause(name, loc, register, weirdness, rng);
             match rng.gen_range(0..7) {
-                0 => format!("{} departed from {} citing personal obligations of an unspecified nature. The {} was {} accordingly.", name, loc, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                0 => format!("{} departed from {} citing personal obligations of an unspecified nature. The {} was {} accordingly.", name, loc, pick_noun(register, rng), pick_verb(register, rng)),
                 1 => format!("{}, {}, left {} without filing the customary notice of departure.", name, sub, loc),
-                2 => format!("The departure of {} from {} was {} by the local office. Several unsigned documents were left behind.", name, loc, pick(PROCEDURAL_VERBS, rng)),
+                2 => format!("The departure of {} from {} was {} by the local office. Several unsigned documents were left behind.", name, loc, pick_verb(register, rng)),
                 3 => format!("{} concluded business in {} that no record describes and departed {}.", name, loc, pick(TEMPORAL_HEDGES, rng)),
                 4 => format!("{}, {}, vacated {} under circumstances the local clerk declined to elaborate upon.", name, sub, loc),
-                5 => format!("The register of {} was updated to reflect the absence of {}. The update was attributed to {}.", loc, name, pick(ABSURDIST_CAUSES, rng)),
-                _ => format!("{} was no longer present in {} as of the most recent {}, a fact the office {} without comment.", name, loc, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                5 => format!("The register of {} was updated to reflect the absence of {}. The update was attributed to {}.", loc, name, pick_cause(weirdness, rng)),
+                _ => format!("{} was no longer present in {} as of the most recent {}, a fact the office {} without comment.", name, loc, pick_noun(register, rng), pick_verb(register, rng)),
             }
         }
 
         EventType::SettlementGrew => {
             match rng.gen_range(0..6) {
-                0 => format!("The settlement of {} recorded an increase in its registered population. The {} was {} with reluctant precision.", loc, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
-                1 => format!("The population of {} expanded by a number the census office described as 'within acceptable parameters.' The growth was attributed to {}.", loc, pick(ABSURDIST_CAUSES, rng)),
-                2 => format!("Additional residents were assigned provisional status in {}. A clerk expressed cautious optimism, then {} the statement.", loc, pick(PROCEDURAL_VERBS, rng)),
-                3 => format!("{} experienced demographic expansion. The housing {} was updated {}.", loc, pick(BUREAUCRATIC_NOUNS, rng), pick(TEMPORAL_HEDGES, rng)),
-                4 => format!("The population figures of {} were revised upward. This revision was {} to factors the administration declined to specify.", loc, pick(PROCEDURAL_VERBS, rng)),
-                _ => format!("New arrivals in {} prompted the opening of a supplementary {}, to be reviewed {}.", loc, pick(BUREAUCRATIC_NOUNS, rng), pick(TEMPORAL_HEDGES, rng)),
+                0 => format!("The settlement of {} recorded an increase in its registered population. The {} was {} with reluctant precision.", loc, pick_noun(register, rng), pick_verb(register, rng)),
+                1 => format!("The population of {} expanded by a number the census office described as 'within acceptable parameters.' The growth was attributed to {}.", loc, pick_cause(weirdness, rng)),
+                2 => format!("Additional residents were assigned provisional status in {}. A clerk expressed cautious optimism, then {} the statement.", loc, pick_verb(register, rng)),
+                3 => format!("{} experienced demographic expansion. The housing {} was updated {}.", loc, pick_noun(register, rng), pick(TEMPORAL_HEDGES, rng)),
+                4 => format!("The population figures of {} were revised upward. This revision was {} to factors the administration declined to specify.", loc, pick_verb(register, rng)),
+                _ => format!("New arrivals in {} prompted the opening of a supplementary {}, to be reviewed {}.", loc, pick_noun(register, rng), pick(TEMPORAL_HEDGES, rng)),
             }
         }
 
         EventType::SettlementShrank => {
             match rng.gen_range(0..6) {
-                0 => format!("The population of {} experienced a documented reduction. The decrease was attributed to {}.", loc, pick(ABSURDIST_CAUSES, rng)),
-                1 => format!("Several addresses in {} were reclassified as 'potentially occupied.' The {} office {} the discrepancy but offered no correction.", loc, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                0 => format!("The population of {} experienced a documented reduction. The decrease was attributed to {}.", loc, pick_cause(weirdness, rng)),
+                1 => format!("Several addresses in {} were reclassified as 'potentially occupied.' The {} office {} the discrepancy but offered no correction.", loc, pick_noun(register, rng), pick_verb(register, rng)),
                 2 => format!("A minor official in {} suggested the population figures may have been previously inflated. The shortfall was absorbed into the next quarter's projections.", loc),
-                3 => format!("The demographic {} of {} showed contraction. This was {} without ceremony.", pick(BUREAUCRATIC_NOUNS, rng), loc, pick(PROCEDURAL_VERBS, rng)),
-                4 => format!("{} recorded fewer inhabitants than its {} accounted for. The discrepancy remains under review {}.", loc, pick(BUREAUCRATIC_NOUNS, rng), pick(TEMPORAL_HEDGES, rng)),
-                _ => format!("The census of {} was revised downward, a correction the office described as 'overdue.' The underlying cause — {} — was not addressed.", loc, pick(ABSURDIST_CAUSES, rng)),
+                3 => format!("The demographic {} of {} showed contraction. This was {} without ceremony.", pick_noun(register, rng), loc, pick_verb(register, rng)),
+                4 => format!("{} recorded fewer inhabitants than its {} accounted for. The discrepancy remains under review {}.", loc, pick_noun(register, rng), pick(TEMPORAL_HEDGES, rng)),
+                _ => format!("The census of {} was revised downward, a correction the office described as 'overdue.' The underlying cause — {} — was not addressed.", loc, pick_cause(weirdness, rng)),
             }
         }
 
         EventType::WeatherEvent => {
             match rng.gen_range(0..6) {
-                0 => format!("Conditions in the vicinity of {} became unseasonably damp. This was attributed to {}, which the Bureau of Ambient Conditions is still reviewing.", loc, pick(ABSURDIST_CAUSES, rng)),
-                1 => format!("The weather near {} was {} by the meteorological office as 'within parameters,' though several residents {} the characterization.", loc, pick(PROCEDURAL_VERBS, rng), pick(PROCEDURAL_VERBS, rng)),
-                2 => format!("An amber haze settled over {}. The phenomenon was attributed to {} and logged under the existing {} for atmospheric irregularities.", loc, pick(ABSURDIST_CAUSES, rng), pick(BUREAUCRATIC_NOUNS, rng)),
-                3 => format!("{} experienced conditions that one official termed 'the usual arrangement.' A {} was opened {}, though expectations for its conclusion are modest.", loc, pick(BUREAUCRATIC_NOUNS, rng), pick(TEMPORAL_HEDGES, rng)),
-                4 => format!("A persistent low wind in the vicinity of {} prompted the filing of a {} with the regional office. The {} was {} but not acted upon.", loc, pick(BUREAUCRATIC_NOUNS, rng), pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
-                _ => format!("The area surrounding {} was punctuated by brief intervals of something not quite rain. Prevailing atmospheric indifference was {} as the cause.", loc, pick(PROCEDURAL_VERBS, rng)),
+                0 => format!("Conditions in the vicinity of {} became unseasonably damp. This was attributed to {}, which the Bureau of Ambient Conditions is still reviewing.", loc, pick_cause(weirdness, rng)),
+                1 => format!("The weather near {} was {} by the meteorological office as 'within parameters,' though several residents {} the characterization.", loc, pick_verb(register, rng), pick_verb(register, rng)),
+                2 => format!("An amber haze settled over {}. The phenomenon was attributed to {} and logged under the existing {} for atmospheric irregularities.", loc, pick_cause(weirdness, rng), pick_noun(register, rng)),
+                3 => format!("{} experienced conditions that one official termed 'the usual arrangement.' A {} was opened {}, though expectations for its conclusion are modest.", loc, pick_noun(register, rng), pick(TEMPORAL_HEDGES, rng)),
+                4 => format!("A persistent low wind in the vicinity of {} prompted the filing of a {} with the regional office. The {} was {} but not acted upon.", loc, pick_noun(register, rng), pick_noun(register, rng), pick_verb(register, rng)),
+                _ => format!("The area surrounding {} was punctuated by brief intervals of something not quite rain. Prevailing atmospheric indifference was {} as the cause.", loc, pick_verb(register, rng)),
             }
         }
 
         EventType::AgeEvent => {
-            let sub = subordinate_clause(name, loc, rng);
+            let sub = subordinate_clause(name, loc, register, weirdness, rng);
             match rng.gen_range(0..6) {
                 0 => format!("{} of {} has persisted in the world for a notable duration. The actuarial tables regard this with skepticism.", name, loc),
                 1 => format!("{}, {}, continues to occupy their census entry with considerable tenacity.", name, sub),
-                2 => format!("The longevity of {} has become a matter of minor administrative interest in {}. A {} was {} to document the fact.", name, loc, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
-                3 => format!("{} of {} has survived long enough to require the opening of a supplementary {} for their records.", name, loc, pick(BUREAUCRATIC_NOUNS, rng)),
-                4 => format!("{}, {}, has reached an age that the {} of {} considers 'statistically noteworthy.'", name, sub, pick(BUREAUCRATIC_NOUNS, rng), loc),
-                _ => format!("The continued existence of {} in {} was {} by the census office, which amended their file {}.", name, loc, pick(PROCEDURAL_VERBS, rng), pick(TEMPORAL_HEDGES, rng)),
+                2 => format!("The longevity of {} has become a matter of minor administrative interest in {}. A {} was {} to document the fact.", name, loc, pick_noun(register, rng), pick_verb(register, rng)),
+                3 => format!("{} of {} has survived long enough to require the opening of a supplementary {} for their records.", name, loc, pick_noun(register, rng)),
+                4 => format!("{}, {}, has reached an age that the {} of {} considers 'statistically noteworthy.'", name, sub, pick_noun(register, rng), loc),
+                _ => format!("The continued existence of {} in {} was {} by the census office, which amended their file {}.", name, loc, pick_verb(register, rng), pick(TEMPORAL_HEDGES, rng)),
             }
         }
 
@@ -167,14 +252,14 @@ pub fn generate_description(
         }
 
         EventType::AgentBorn => {
-            let sub = subordinate_clause(name, loc, rng);
+            let sub = subordinate_clause(name, loc, register, weirdness, rng);
             match rng.gen_range(0..6) {
                 0 => format!("{} entered the records of {} under circumstances the registrar described as 'standard.' A provisional identity number was assigned {}.", name, loc, pick(TEMPORAL_HEDGES, rng)),
                 1 => format!("{}, {}, was added to the census of {} to the apparent surprise of the local office.", name, sub, loc),
-                2 => format!("The {} of {} {} the existence of {} amid paperwork that had already been prepared.", pick(BUREAUCRATIC_NOUNS, rng), loc, pick(PROCEDURAL_VERBS, rng), name),
-                3 => format!("{} materialized in the records of {} without the customary advance notification to the Bureau of New Arrivals. A {} was opened {}.", name, loc, pick(BUREAUCRATIC_NOUNS, rng), pick(TEMPORAL_HEDGES, rng)),
-                4 => format!("A new entry for {} was {} in the register of {}, attributed to {}.", name, pick(PROCEDURAL_VERBS, rng), loc, pick(ABSURDIST_CAUSES, rng)),
-                _ => format!("{} was assigned to the census of {}. The relevant {} was completed with a speed that alarmed the processing clerk.", name, loc, pick(BUREAUCRATIC_NOUNS, rng)),
+                2 => format!("The {} of {} {} the existence of {} amid paperwork that had already been prepared.", pick_noun(register, rng), loc, pick_verb(register, rng), name),
+                3 => format!("{} materialized in the records of {} without the customary advance notification to the Bureau of New Arrivals. A {} was opened {}.", name, loc, pick_noun(register, rng), pick(TEMPORAL_HEDGES, rng)),
+                4 => format!("A new entry for {} was {} in the register of {}, attributed to {}.", name, pick_verb(register, rng), loc, pick_cause(weirdness, rng)),
+                _ => format!("{} was assigned to the census of {}. The relevant {} was completed with a speed that alarmed the processing clerk.", name, loc, pick_noun(register, rng)),
             }
         }
 

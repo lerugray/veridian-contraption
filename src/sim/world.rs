@@ -78,6 +78,83 @@ pub struct People {
     pub phoneme_set: usize,
 }
 
+/// The narrative register governing prose style for this world.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum NarrativeRegister {
+    Clinical,
+    Lyrical,
+    Bureaucratic,
+    Ominous,
+    Conspiratorial,
+}
+
+impl NarrativeRegister {
+    pub fn label(self) -> &'static str {
+        match self {
+            NarrativeRegister::Clinical => "Clinical",
+            NarrativeRegister::Lyrical => "Lyrical",
+            NarrativeRegister::Bureaucratic => "Bureaucratic",
+            NarrativeRegister::Ominous => "Ominous",
+            NarrativeRegister::Conspiratorial => "Conspiratorial",
+        }
+    }
+}
+
+impl Default for NarrativeRegister {
+    fn default() -> Self { NarrativeRegister::Bureaucratic }
+}
+
+/// World-level simulation parameters — each world generates its own ruleset.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldParams {
+    /// Multiplier on how fast events fire per tick (0.1–3.0).
+    pub temporal_rate: f32,
+    /// Rate of institutional change (0.0–1.0).
+    pub political_churn: f32,
+    /// Frequency of metaphysical/cosmological events (0.0–1.0).
+    pub cosmological_density: f32,
+    /// Rate of environmental events (0.0–1.0).
+    pub ecological_volatility: f32,
+    /// Prose style the world's log tends toward.
+    pub narrative_register: NarrativeRegister,
+    /// Global absurdity dial (0.0–1.0). Affects naming, events, prose.
+    pub weirdness_coefficient: f32,
+}
+
+impl Default for WorldParams {
+    fn default() -> Self {
+        WorldParams {
+            temporal_rate: 1.0,
+            political_churn: 0.5,
+            cosmological_density: 0.3,
+            ecological_volatility: 0.5,
+            narrative_register: NarrativeRegister::Bureaucratic,
+            weirdness_coefficient: 0.5,
+        }
+    }
+}
+
+impl WorldParams {
+    /// Human-readable descriptor for a 0.0–1.0 parameter value.
+    pub fn describe_level(value: f32) -> &'static str {
+        if value < 0.15 { "Negligible" }
+        else if value < 0.3 { "Low" }
+        else if value < 0.5 { "Moderate" }
+        else if value < 0.7 { "Elevated" }
+        else if value < 0.85 { "High" }
+        else { "Extreme" }
+    }
+
+    /// Human-readable descriptor for temporal_rate (0.1–3.0).
+    pub fn describe_temporal_rate(&self) -> &'static str {
+        if self.temporal_rate < 0.4 { "Geological" }
+        else if self.temporal_rate < 0.8 { "Unhurried" }
+        else if self.temporal_rate < 1.2 { "Standard" }
+        else if self.temporal_rate < 2.0 { "Accelerated" }
+        else { "Frenetic" }
+    }
+}
+
 /// The complete world state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct World {
@@ -87,6 +164,8 @@ pub struct World {
     pub settlements: Vec<Settlement>,
     pub peoples: Vec<People>,
     pub tick: u64,
+    #[serde(default)]
+    pub params: WorldParams,
 }
 
 impl World {

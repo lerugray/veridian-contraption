@@ -276,6 +276,8 @@ impl SimState {
                             Some(&loc_name),
                             tick,
                             &mut self.rng,
+                            self.world.params.narrative_register,
+                            self.world.params.weirdness_coefficient,
                         )
                     }
                 };
@@ -308,8 +310,9 @@ impl SimState {
         let mut artifact_events = self.process_adventurer_tick(tick);
         new_events.append(&mut artifact_events);
 
-        // Weather events — roughly every 50 ticks, pick a random settlement
-        if tick % 50 == 0 && !self.world.settlements.is_empty() {
+        // Weather events — interval scaled by temporal_rate and ecological_volatility
+        let weather_interval = (50.0 / (self.world.params.temporal_rate * (0.5 + self.world.params.ecological_volatility))).max(5.0) as u64;
+        if tick % weather_interval == 0 && !self.world.settlements.is_empty() {
             let idx = self.rng.gen_range(0..self.world.settlements.len());
             let s = &self.world.settlements[idx];
             let loc_name = s.name.clone();
@@ -319,6 +322,8 @@ impl SimState {
                 Some(&loc_name),
                 tick,
                 &mut self.rng,
+                self.world.params.narrative_register,
+                self.world.params.weirdness_coefficient,
             );
             new_events.push(Event {
                 tick,
@@ -329,8 +334,9 @@ impl SimState {
             });
         }
 
-        // Settlement growth/shrinkage — roughly every 200 ticks
-        if tick % 200 == 0 && !self.world.settlements.is_empty() {
+        // Settlement growth/shrinkage — interval scaled by temporal_rate
+        let settlement_interval = (200.0 / self.world.params.temporal_rate).max(20.0) as u64;
+        if tick % settlement_interval == 0 && !self.world.settlements.is_empty() {
             let idx = self.rng.gen_range(0..self.world.settlements.len());
             let s = &self.world.settlements[idx];
             let loc_name = s.name.clone();
@@ -346,6 +352,8 @@ impl SimState {
                 Some(&loc_name),
                 tick,
                 &mut self.rng,
+                self.world.params.narrative_register,
+                self.world.params.weirdness_coefficient,
             );
             new_events.push(Event {
                 tick,
@@ -356,8 +364,9 @@ impl SimState {
             });
         }
 
-        // Census report every 100 ticks
-        if tick % 100 == 0 {
+        // Census report — interval scaled by temporal_rate
+        let census_interval = (100.0 / self.world.params.temporal_rate).max(10.0) as u64;
+        if tick % census_interval == 0 {
             let alive_count = self.agents.iter().filter(|a| a.alive).count();
             let description = format!(
                 "The census records {} souls still accounted for. The registrar noted this figure without comment.",
@@ -572,8 +581,9 @@ impl SimState {
             }
         }
 
-        // Periodic institutional events — every 75 ticks, pick a random living institution
-        if tick % 75 == 0 && !self.institutions.is_empty() {
+        // Periodic institutional events — interval scaled by temporal_rate and political_churn
+        let inst_event_interval = (75.0 / (self.world.params.temporal_rate * (0.5 + self.world.params.political_churn))).max(5.0) as u64;
+        if tick % inst_event_interval == 0 && !self.institutions.is_empty() {
             let alive_indices: Vec<usize> = self.institutions.iter()
                 .enumerate()
                 .filter(|(_, i)| i.alive)
@@ -589,8 +599,9 @@ impl SimState {
             }
         }
 
-        // Relationship events — every 150 ticks, check if institutions develop opinions
-        if tick % 150 == 0 {
+        // Relationship events — interval scaled by temporal_rate and political_churn
+        let relation_interval = (150.0 / (self.world.params.temporal_rate * (0.5 + self.world.params.political_churn))).max(10.0) as u64;
+        if tick % relation_interval == 0 {
             let alive_ids: Vec<u64> = self.institutions.iter()
                 .filter(|i| i.alive)
                 .map(|i| i.id)
@@ -612,8 +623,9 @@ impl SimState {
             }
         }
 
-        // Member departure/expulsion — every 80 ticks
-        if tick % 80 == 0 {
+        // Member departure/expulsion — interval scaled by temporal_rate and political_churn
+        let departure_interval = (80.0 / (self.world.params.temporal_rate * (0.5 + self.world.params.political_churn))).max(5.0) as u64;
+        if tick % departure_interval == 0 {
             if let Some(e) = self.process_member_departure(tick) {
                 events.push(e);
             }

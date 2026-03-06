@@ -60,11 +60,13 @@ enum AppMode {
     /// Brief "Generating..." screen shown for a few frames before sim starts.
     Generating {
         seed: u64,
+        flavor: usize,
         frames_shown: u32,
     },
-    /// World Assessment Report shown after generation, before sim starts. (scroll offset)
+    /// World Assessment Report shown after generation, before sim starts. (scroll offset, flavor index)
     WorldReport {
         scroll: usize,
+        flavor: usize,
     },
     InGame,
 }
@@ -99,7 +101,7 @@ fn run_app(
                 AppMode::Generating { .. } => {
                     ui::menu::draw_generating(frame);
                 }
-                AppMode::WorldReport { scroll } => {
+                AppMode::WorldReport { scroll, .. } => {
                     if let Some(ref s) = sim {
                         ui::overlays::draw_world_report_fullscreen(frame, s, *scroll, true);
                     }
@@ -113,12 +115,13 @@ fn run_app(
         })?;
 
         // Handle Generating state transition (show the screen for a few frames first)
-        if let AppMode::Generating { seed, ref mut frames_shown } = mode {
+        if let AppMode::Generating { seed, flavor, ref mut frames_shown } = mode {
             *frames_shown += 1;
             if *frames_shown >= 3 {
-                let (world, agents, institutions, sites, artifacts) = world_gen::generate_world(seed);
+                let wf = world_gen::WorldFlavor::from_index(flavor);
+                let (world, agents, institutions, sites, artifacts) = world_gen::generate_world(seed, wf);
                 sim = Some(SimState::new(world, agents, institutions, sites, artifacts));
-                mode = AppMode::WorldReport { scroll: 0 };
+                mode = AppMode::WorldReport { scroll: 0, flavor };
                 continue;
             }
         }
@@ -306,7 +309,7 @@ fn handle_new_world_input(mode: &mut AppMode, key: KeyCode) {
                     // Hash the seed string to a u64
                     hash_seed_string(seed_input)
                 };
-                *mode = AppMode::Generating { seed, frames_shown: 0 };
+                *mode = AppMode::Generating { seed, flavor: *selected_preset, frames_shown: 0 };
             }
             KeyCode::Backspace => {
                 seed_input.pop();
@@ -349,7 +352,7 @@ fn handle_new_world_input(mode: &mut AppMode, key: KeyCode) {
                 } else {
                     hash_seed_string(seed_input)
                 };
-                *mode = AppMode::Generating { seed, frames_shown: 0 };
+                *mode = AppMode::Generating { seed, flavor: *selected_preset, frames_shown: 0 };
             }
             _ => {}
         }
@@ -423,8 +426,8 @@ fn handle_world_report_input(
     sim: &mut Option<SimState>,
     key: KeyCode,
 ) -> InputResult {
-    let scroll = if let AppMode::WorldReport { scroll } = mode {
-        scroll
+    let (scroll, flavor) = if let AppMode::WorldReport { scroll, flavor } = mode {
+        (scroll, *flavor)
     } else {
         return InputResult::Continue;
     };
@@ -435,14 +438,15 @@ fn handle_world_report_input(
             *mode = AppMode::InGame;
         }
         KeyCode::Char('r') | KeyCode::Char('R') => {
-            // Reroll: generate a new random seed and regenerate
+            // Reroll: generate a new random seed with same flavor and regenerate
             let new_seed = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos() as u64)
                 .unwrap_or(42);
-            let (world, agents, institutions, sites, artifacts) = world_gen::generate_world(new_seed);
+            let wf = world_gen::WorldFlavor::from_index(flavor);
+            let (world, agents, institutions, sites, artifacts) = world_gen::generate_world(new_seed, wf);
             *sim = Some(SimState::new(world, agents, institutions, sites, artifacts));
-            *mode = AppMode::WorldReport { scroll: 0 };
+            *mode = AppMode::WorldReport { scroll: 0, flavor };
         }
         KeyCode::Up => {
             *scroll = scroll.saturating_sub(1);

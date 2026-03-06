@@ -8,27 +8,27 @@ use ratatui::{
 
 use crate::export::SaveFileInfo;
 
-/// Flavor preset names and descriptions (placeholders — full implementation Phase 4).
+/// Flavor preset names and descriptions.
 pub const FLAVOR_PRESETS: &[(&str, &str)] = &[
     (
         "The Long Bureaucracy",
-        "Slow time, dense institutions, dry prose",
+        "Slow time, dense institutions, Bureaucratic",
     ),
     (
         "The Burning Provinces",
-        "Fast time, high volatility, terse register",
+        "Fast time, high volatility, Ominous",
     ),
     (
         "The Deep Taxonomy",
-        "Ecological focus, naturalist register",
+        "High weirdness, ecological focus, Clinical",
     ),
     (
         "The Conspiratorial Age",
-        "High cosmological density, paranoid register",
+        "Secret societies, high cosmological density",
     ),
     (
         "Unguided",
-        "Fully random parameters, maximum variance",
+        "Fully random parameters",
     ),
 ];
 
@@ -144,7 +144,9 @@ pub fn draw_new_world(
     frame.render_widget(title, chunks[1]);
 
     // Preset list — show description on a second indented line under each name
-    let content_area = centered_horizontal(50, chunks[3]);
+    // Use up to 60 columns, but cap at available width
+    let content_width = 60.min(area.width.saturating_sub(4));
+    let content_area = centered_horizontal(content_width, chunks[3]);
 
     let mut preset_lines: Vec<Line> = vec![
         Line::from(Span::styled(
@@ -172,7 +174,7 @@ pub fn draw_new_world(
     frame.render_widget(presets_widget, content_area);
 
     // Seed input
-    let seed_area = centered_horizontal(50, chunks[5]);
+    let seed_area = centered_horizontal(content_width, chunks[5]);
     let cursor_char = if editing_seed { "_" } else { "" };
     let seed_border_color = if editing_seed {
         Color::Yellow
