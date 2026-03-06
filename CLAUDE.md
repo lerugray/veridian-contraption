@@ -100,9 +100,9 @@ prose, and runs continuously whether the player interacts or not.
 
 ```
 CURRENT PHASE: Phase 3 IN PROGRESS
-LAST COMPLETED PROMPT: 3-A — Dungeon/Site Generation & Site View
+LAST COMPLETED PROMPT: 3-B — Artifacts & Adventurer Agents
 STATUS: Working
-NEXT TASK: Phase 3-B — Artifacts & Adventurer Agents
+NEXT TASK: Phase 3 polish / Phase 4 — World Parametric Variance
 ```
 
 ---

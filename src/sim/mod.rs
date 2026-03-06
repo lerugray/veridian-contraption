@@ -3,6 +3,7 @@ pub mod agent;
 pub mod event;
 pub mod institution;
 pub mod site;
+pub mod artifact;
 
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -11,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::gen::name_gen;
 use crate::gen::prose_gen;
 use crate::sim::agent::Agent;
+use crate::sim::artifact::Artifact;
 use crate::sim::event::{Event, EventType};
 use crate::sim::institution::Institution;
 use crate::sim::site::Site;
@@ -98,6 +100,8 @@ pub struct SaveData {
     pub institutions: Vec<Institution>,
     #[serde(default)]
     pub sites: Vec<Site>,
+    #[serde(default)]
+    pub artifacts: Vec<Artifact>,
     pub speed: SimSpeed,
     pub events: Vec<Event>,
     pub save_name: Option<String>,
@@ -113,6 +117,7 @@ pub struct SimState {
     pub agents: Vec<Agent>,
     pub institutions: Vec<Institution>,
     pub sites: Vec<Site>,
+    pub artifacts: Vec<Artifact>,
     pub speed: SimSpeed,
     /// Event log (ring buffer, most recent at end).
     pub events: Vec<Event>,
@@ -140,7 +145,7 @@ pub struct SimState {
 }
 
 impl SimState {
-    pub fn new(world: World, agents: Vec<Agent>, institutions: Vec<Institution>, sites: Vec<Site>) -> Self {
+    pub fn new(world: World, agents: Vec<Agent>, institutions: Vec<Institution>, sites: Vec<Site>, artifacts: Vec<Artifact>) -> Self {
         let rng = StdRng::seed_from_u64(world.seed.wrapping_add(1));
         let next_id = institutions.iter().map(|i| i.id + 1).max().unwrap_or(0);
         let genesis = Event {
@@ -155,6 +160,7 @@ impl SimState {
             agents,
             institutions,
             sites,
+            artifacts,
             speed: SimSpeed::Paused,
             events: vec![genesis],
             log_scroll: 0,
@@ -177,6 +183,7 @@ impl SimState {
             agents: self.agents.clone(),
             institutions: self.institutions.clone(),
             sites: self.sites.clone(),
+            artifacts: self.artifacts.clone(),
             speed: self.speed,
             events: self.events.clone(),
             save_name: self.save_name.clone(),
@@ -195,6 +202,7 @@ impl SimState {
             agents: data.agents,
             institutions: data.institutions,
             sites: data.sites,
+            artifacts: data.artifacts,
             speed: data.speed,
             events: data.events,
             log_scroll: 0,
@@ -293,6 +301,10 @@ impl SimState {
                 }
             }
         }
+
+        // --- Adventurer artifact simulation ---
+        let mut artifact_events = self.process_adventurer_tick(tick);
+        new_events.append(&mut artifact_events);
 
         // Weather events — roughly every 50 ticks, pick a random settlement
         if tick % 50 == 0 && !self.world.settlements.is_empty() {
@@ -884,6 +896,191 @@ impl SimState {
             location: Some((self.agents[ai].x, self.agents[ai].y)),
             description,
         })
+    }
+
+    /// Process adventurer artifact-related actions for one tick.
+    fn process_adventurer_tick(&mut self, tick: u64) -> Vec<Event> {
+        let mut events = Vec::new();
+
+        let settlement_positions: Vec<(u32, u32)> = self.world.settlements
+            .iter().map(|s| (s.x as u32, s.y as u32)).collect();
+        let site_positions: Vec<(u32, u32)> = self.sites
+            .iter().map(|s| (s.grid_x, s.grid_y)).collect();
+
+        let agent_count = self.agents.len();
+        for ai in 0..agent_count {
+            if !self.agents[ai].alive { continue; }
+
+            let goal = self.agents[ai].current_goal.clone();
+            match goal {
+                agent::Goal::AcquireArtifact(artifact_id, site_idx) => {
+                    if site_idx >= site_positions.len() {
+                        self.agents[ai].current_goal = agent::Goal::Wander;
+                        continue;
+                    }
+                    let (sx, sy) = site_positions[site_idx];
+                    if self.agents[ai].x != sx || self.agents[ai].y != sy {
+                        continue; // still traveling
+                    }
+
+                    // At the site — chance of death
+                    if self.rng.gen_bool(0.03) {
+                        let agent_name = self.agents[ai].display_name();
+                        let site_name = self.sites.get(site_idx)
+                            .map(|s| s.name.clone()).unwrap_or_else(|| "an unnamed site".to_string());
+                        self.agents[ai].alive = false;
+                        let description = prose_gen::generate_adventurer_death(
+                            &agent_name, &site_name, &mut self.rng,
+                        );
+                        events.push(Event {
+                            tick,
+                            event_type: EventType::AdventurerDiedInSite,
+                            subject_id: Some(self.agents[ai].id),
+                            location: Some((sx, sy)),
+                            description,
+                        });
+                        // Drop any held artifacts back into the site
+                        let held = self.agents[ai].held_artifacts.clone();
+                        for art_id in held {
+                            if let Some(art) = self.artifacts.iter_mut().find(|a| a.id == art_id) {
+                                art.current_location = artifact::ArtifactLocation::InSite(site_idx);
+                                art.history.push(format!(
+                                    "Returned to {} following the demise of its bearer.", site_name
+                                ));
+                            }
+                            if site_idx < self.sites.len() {
+                                self.sites[site_idx].artifacts.push(art_id);
+                            }
+                        }
+                        self.agents[ai].held_artifacts.clear();
+                        continue;
+                    }
+
+                    // Try to acquire
+                    let still_here = self.artifacts.iter().any(|a| {
+                        a.id == artifact_id
+                            && matches!(a.current_location, artifact::ArtifactLocation::InSite(si) if si == site_idx)
+                    });
+                    if !still_here {
+                        self.agents[ai].current_goal = agent::Goal::Wander;
+                        continue;
+                    }
+
+                    // Acquire the artifact
+                    let agent_name = self.agents[ai].display_name();
+                    let agent_id = self.agents[ai].id;
+                    let site_name = self.sites.get(site_idx)
+                        .map(|s| s.name.clone()).unwrap_or_else(|| "an unnamed site".to_string());
+
+                    if let Some(art) = self.artifacts.iter_mut().find(|a| a.id == artifact_id) {
+                        art.current_location = artifact::ArtifactLocation::HeldByAgent(agent_id);
+                        art.history.push(format!(
+                            "Acquired by {} from {}.", agent_name, site_name
+                        ));
+                        let art_name = art.name.clone();
+
+                        // Remove from site's artifact list
+                        if site_idx < self.sites.len() {
+                            self.sites[site_idx].artifacts.retain(|&id| id != artifact_id);
+                        }
+
+                        self.agents[ai].held_artifacts.push(artifact_id);
+
+                        let description = prose_gen::generate_artifact_event(
+                            &EventType::ArtifactAcquired,
+                            &agent_name,
+                            &art_name,
+                            &site_name,
+                            &mut self.rng,
+                        );
+                        events.push(Event {
+                            tick,
+                            event_type: EventType::ArtifactAcquired,
+                            subject_id: Some(agent_id),
+                            location: Some((sx, sy)),
+                            description,
+                        });
+
+                        // Now set goal to return to nearest settlement
+                        let nearest = settlement_positions.iter().enumerate()
+                            .min_by_key(|(_, (px, py))| {
+                                let dx = (*px as i32 - sx as i32).unsigned_abs();
+                                let dy = (*py as i32 - sy as i32).unsigned_abs();
+                                dx + dy
+                            })
+                            .map(|(idx, _)| idx)
+                            .unwrap_or(0);
+                        self.agents[ai].current_goal = agent::Goal::ReturnArtifact(artifact_id, nearest);
+                    }
+                }
+                agent::Goal::ReturnArtifact(artifact_id, settlement_idx) => {
+                    if settlement_idx >= settlement_positions.len() {
+                        self.agents[ai].current_goal = agent::Goal::Wander;
+                        continue;
+                    }
+                    let (sx, sy) = settlement_positions[settlement_idx];
+                    if self.agents[ai].x != sx || self.agents[ai].y != sy {
+                        continue; // still traveling
+                    }
+
+                    // Deliver the artifact
+                    let agent_name = self.agents[ai].display_name();
+                    let agent_id = self.agents[ai].id;
+                    let settlement_name = self.world.settlements.get(settlement_idx)
+                        .map(|s| s.name.clone()).unwrap_or_else(|| "an unnamed settlement".to_string());
+
+                    if let Some(art) = self.artifacts.iter_mut().find(|a| a.id == artifact_id) {
+                        art.current_location = artifact::ArtifactLocation::InSettlement(settlement_idx);
+                        art.history.push(format!(
+                            "Delivered to {} by {}.", settlement_name, agent_name
+                        ));
+                        let art_name = art.name.clone();
+
+                        self.agents[ai].held_artifacts.retain(|&id| id != artifact_id);
+
+                        let description = prose_gen::generate_artifact_event(
+                            &EventType::ArtifactDelivered,
+                            &agent_name,
+                            &art_name,
+                            &settlement_name,
+                            &mut self.rng,
+                        );
+                        events.push(Event {
+                            tick,
+                            event_type: EventType::ArtifactDelivered,
+                            subject_id: Some(agent_id),
+                            location: Some((sx, sy)),
+                            description,
+                        });
+                    }
+
+                    self.agents[ai].current_goal = agent::Goal::Rest(self.rng.gen_range(10..=30));
+                }
+                _ => {
+                    // Adventurers idle: seek artifacts
+                    if self.agents[ai].is_adventurer
+                        && matches!(goal, agent::Goal::Wander | agent::Goal::Rest(_))
+                        && self.rng.gen_bool(0.02)
+                    {
+                        let site_artifacts: Vec<(u64, usize)> = self.artifacts.iter()
+                            .filter_map(|a| {
+                                if let artifact::ArtifactLocation::InSite(si) = &a.current_location {
+                                    Some((a.id, *si))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        if !site_artifacts.is_empty() {
+                            let (aid, si) = site_artifacts[self.rng.gen_range(0..site_artifacts.len())];
+                            self.agents[ai].current_goal = agent::Goal::AcquireArtifact(aid, si);
+                        }
+                    }
+                }
+            }
+        }
+
+        events
     }
 
     /// Get indices of all living institutions.

@@ -57,6 +57,20 @@ pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize)
                 format!("Exploring site ({} ticks remaining)", ticks)
             }
         }
+        Goal::AcquireArtifact(art_id, site_idx) => {
+            let art_name = sim.artifacts.iter().find(|a| a.id == *art_id)
+                .map(|a| a.name.as_str()).unwrap_or("unknown artifact");
+            let site_name = sim.sites.get(*site_idx)
+                .map(|s| s.name.as_str()).unwrap_or("unknown site");
+            format!("Seeking {} in {}", art_name, site_name)
+        }
+        Goal::ReturnArtifact(art_id, sett_idx) => {
+            let art_name = sim.artifacts.iter().find(|a| a.id == *art_id)
+                .map(|a| a.name.as_str()).unwrap_or("unknown artifact");
+            let sett_name = sim.world.settlements.get(*sett_idx)
+                .map(|s| s.name.as_str()).unwrap_or("unknown settlement");
+            format!("Returning {} to {}", art_name, sett_name)
+        }
     };
 
     let alive_str = if agent.alive { "Alive" } else { "Deceased" };
@@ -121,6 +135,25 @@ pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize)
         }
     } else {
         lines.push(Line::from(Span::styled(" AFFILIATIONS: None", Style::default().fg(Color::DarkGray))));
+    }
+
+    // Adventurer flag
+    if agent.is_adventurer {
+        lines.push(Line::from(Span::styled(" ADVENTURER", Style::default().fg(Color::LightYellow))));
+    }
+
+    // Held artifacts
+    if !agent.held_artifacts.is_empty() {
+        lines.push(Line::from(Span::styled(" HELD ARTIFACTS", Style::default().fg(Color::White))));
+        for &art_id in &agent.held_artifacts {
+            if let Some(art) = sim.artifacts.iter().find(|a| a.id == art_id) {
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(&art.name, Style::default().fg(Color::LightYellow)),
+                    Span::styled(format!(" ({})", art.kind.label()), Style::default().fg(Color::DarkGray)),
+                ]));
+            }
+        }
     }
 
     lines.extend(vec![
@@ -618,13 +651,21 @@ pub fn draw_site_list(frame: &mut Frame, sim: &SimState, selected: usize) {
                 "Unclaimed".to_string()
             };
 
+            let artifact_count = site.artifacts.len();
+            let artifact_label = if artifact_count > 0 {
+                format!(" | {} artifact{}", artifact_count, if artifact_count == 1 { "" } else { "s" })
+            } else {
+                String::new()
+            };
+
             let detail = format!(
-                "     {} | ({},{}) | {} floor{} | {}",
+                "     {} | ({},{}) | {} floor{} | {}{}",
                 site.kind.label(),
                 site.grid_x, site.grid_y,
                 site.floors.len(),
                 if site.floors.len() == 1 { "" } else { "s" },
                 faction_label,
+                artifact_label,
             );
             lines.push(Line::from(Span::styled(
                 detail,

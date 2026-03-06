@@ -28,6 +28,10 @@ pub enum EventType {
     // Site events
     AgentEnteredSite,
     AgentLeftSite,
+    // Artifact events
+    ArtifactAcquired,
+    ArtifactDelivered,
+    AdventurerDiedInSite,
 }
 
 impl EventType {
@@ -62,7 +66,12 @@ impl EventType {
 
             // Site events — red (matches dungeon map color)
             EventType::AgentEnteredSite
-            | EventType::AgentLeftSite => Color::Red,
+            | EventType::AgentLeftSite
+            | EventType::AdventurerDiedInSite => Color::Red,
+
+            // Artifact events — light yellow (treasure)
+            EventType::ArtifactAcquired
+            | EventType::ArtifactDelivered => Color::LightYellow,
 
             // Cosmological / world-level — magenta
             EventType::WorldGenesis

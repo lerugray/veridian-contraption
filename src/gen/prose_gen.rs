@@ -183,6 +183,15 @@ pub fn generate_description(
             format!("{} had business at a site near {}.", name, loc)
         }
 
+        // Artifact events use generate_artifact_event
+        EventType::ArtifactAcquired | EventType::ArtifactDelivered => {
+            format!("{} was involved in an artifact transaction near {}.", name, loc)
+        }
+
+        EventType::AdventurerDiedInSite => {
+            format!("{} met their end in a site near {}.", name, loc)
+        }
+
         // Institutional events use generate_institutional_description
         EventType::InstitutionFounded
         | EventType::InstitutionDissolved
@@ -337,6 +346,59 @@ pub fn generate_site_description(
             }
         }
         _ => format!("{} had dealings with {}. The nature of these dealings was not recorded.", agent_name, site_name),
+    }
+}
+
+/// Generate prose for artifact acquisition/delivery events.
+pub fn generate_artifact_event(
+    event_type: &EventType,
+    agent_name: &str,
+    artifact_name: &str,
+    location_name: &str,
+    rng: &mut StdRng,
+) -> String {
+    match event_type {
+        EventType::ArtifactAcquired => {
+            match rng.gen_range(0..7) {
+                0 => format!("{} recovered {} from {}. A {} was opened to document the acquisition, though the item's provenance remains {}.", agent_name, artifact_name, location_name, pick(BUREAUCRATIC_NOUNS, rng), pick(TEMPORAL_HEDGES, rng)),
+                1 => format!("{} emerged from {} bearing {}. The relevant authorities were not immediately notified.", agent_name, location_name, artifact_name),
+                2 => format!("The acquisition of {} by {} was accomplished within {}. Whether the previous custodian would have objected is a question the {} declined to entertain.", artifact_name, agent_name, location_name, pick(BUREAUCRATIC_NOUNS, rng)),
+                3 => format!("{} took possession of {} in {}. The act was {} by no one, as there was no one present to {} it.", agent_name, artifact_name, location_name, pick(PROCEDURAL_VERBS, rng), pick(PROCEDURAL_VERBS, rng)),
+                4 => format!("{}, having located {} in the depths of {}, claimed it under the principle of administrative salvage.", agent_name, artifact_name, location_name),
+                5 => format!("{} secured {} from {}. The item's condition was {} as 'consistent with prolonged neglect.'", agent_name, artifact_name, location_name, pick(PROCEDURAL_VERBS, rng)),
+                _ => format!("From {} came {}, bearing {}. A {} was {} to mark the occasion, though its filing priority remains undetermined.", location_name, agent_name, artifact_name, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+            }
+        }
+        EventType::ArtifactDelivered => {
+            match rng.gen_range(0..7) {
+                0 => format!("{} delivered {} to {}. The receiving clerk {} the item and assigned it a temporary reference number.", agent_name, artifact_name, location_name, pick(PROCEDURAL_VERBS, rng)),
+                1 => format!("{} arrived in {} carrying {}. Its deposit was {} with a formality that surprised the local office.", agent_name, location_name, artifact_name, pick(PROCEDURAL_VERBS, rng)),
+                2 => format!("The arrival of {} in {} brought with it {}, which was {} into the local {} under 'miscellaneous acquisitions.'", agent_name, location_name, artifact_name, pick(PROCEDURAL_VERBS, rng), pick(BUREAUCRATIC_NOUNS, rng)),
+                3 => format!("{} deposited {} at {}. The {} of custody was completed {}, to the relief of all parties involved.", agent_name, artifact_name, location_name, pick(BUREAUCRATIC_NOUNS, rng), pick(TEMPORAL_HEDGES, rng)),
+                4 => format!("{} presented {} to the authorities of {}. They accepted it with the enthusiasm of an office receiving {}.", agent_name, artifact_name, location_name, pick(ABSURDIST_CAUSES, rng)),
+                5 => format!("{} was entrusted to the keeping of {} by {}, who {} the transfer and departed without further comment.", artifact_name, location_name, agent_name, pick(PROCEDURAL_VERBS, rng)),
+                _ => format!("{} relinquished {} in {}. The item was {} to a secure location. The definition of 'secure' was not elaborated upon.", agent_name, artifact_name, location_name, pick(PROCEDURAL_VERBS, rng)),
+            }
+        }
+        _ => format!("{} had dealings involving {} near {}.", agent_name, artifact_name, location_name),
+    }
+}
+
+/// Generate prose for an adventurer dying in a site.
+pub fn generate_adventurer_death(
+    agent_name: &str,
+    site_name: &str,
+    rng: &mut StdRng,
+) -> String {
+    match rng.gen_range(0..8) {
+        0 => format!("{} was not seen again after entering {}. The {} that was opened on their behalf was subsequently closed, unfiled.", agent_name, site_name, pick(BUREAUCRATIC_NOUNS, rng)),
+        1 => format!("The expedition of {} into {} concluded in a manner the records describe only as 'terminal.' A {} was {} {}.", agent_name, site_name, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng), pick(TEMPORAL_HEDGES, rng)),
+        2 => format!("{} perished within {}, a development attributed to {}. The body has not been recovered, and the relevant paperwork remains incomplete.", agent_name, site_name, pick(ABSURDIST_CAUSES, rng)),
+        3 => format!("The census entry for {} was amended following their final visit to {}. The amendment was terse.", agent_name, site_name),
+        4 => format!("{} met their end in the depths of {}. The cause of death was {} by the coroner as 'architecturally mediated.'", agent_name, site_name, pick(PROCEDURAL_VERBS, rng)),
+        5 => format!("{} entered {} and did not emerge. The {} recorded this outcome under 'anticipated losses.'", agent_name, site_name, pick(BUREAUCRATIC_NOUNS, rng)),
+        6 => format!("The file on {} was closed following an incident in {} that the investigating clerk described as 'unambiguously fatal.'", agent_name, site_name),
+        _ => format!("{} succumbed to conditions within {} that had been {} in an earlier {} but never addressed.", agent_name, site_name, pick(PROCEDURAL_VERBS, rng), pick(BUREAUCRATIC_NOUNS, rng)),
     }
 }
 

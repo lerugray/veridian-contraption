@@ -45,6 +45,10 @@ pub enum Goal {
     SeekSite(usize),
     /// Currently inside a site, resting/exploring (site index, ticks remaining).
     ExploreSite(usize, u32),
+    /// Seeking to acquire an artifact from a site (artifact id, site index).
+    AcquireArtifact(u64, usize),
+    /// Returning an artifact to a settlement (artifact id, settlement index).
+    ReturnArtifact(u64, usize),
 }
 
 /// An action result returned from Agent::act() to be turned into events by the sim.
@@ -79,6 +83,12 @@ pub struct Agent {
     /// Institution IDs this agent belongs to (0-2).
     #[serde(default)]
     pub institution_ids: Vec<u64>,
+    /// Whether this agent is an adventurer (high risk, seeks artifacts).
+    #[serde(default)]
+    pub is_adventurer: bool,
+    /// Artifact IDs currently held by this agent.
+    #[serde(default)]
+    pub held_artifacts: Vec<u64>,
 }
 
 impl Agent {
@@ -196,6 +206,38 @@ impl Agent {
                     self.maybe_change_goal(rng, settlements, site_positions);
                 } else {
                     self.current_goal = Goal::ExploreSite(idx, remaining - 1);
+                }
+            }
+            Goal::AcquireArtifact(_artifact_id, site_idx) => {
+                let site_idx = *site_idx;
+                if site_idx < site_positions.len() {
+                    let (sx, sy) = site_positions[site_idx];
+                    if self.x == sx && self.y == sy {
+                        // At the site — acquisition is handled by sim tick
+                        // Stay here, goal will be changed by sim
+                    } else {
+                        self.move_toward(sx, sy, terrain);
+                        if self.x == sx && self.y == sy {
+                            actions.push(AgentAction {
+                                agent_id: self.id,
+                                event_type: EventType::AgentEnteredSite,
+                                old_pos,
+                                new_pos: (self.x, self.y),
+                            });
+                        }
+                    }
+                } else {
+                    self.current_goal = Goal::Wander;
+                }
+            }
+            Goal::ReturnArtifact(_artifact_id, settlement_idx) => {
+                let settlement_idx = *settlement_idx;
+                if settlement_idx < settlements.len() {
+                    let (sx, sy) = settlements[settlement_idx];
+                    self.move_toward(sx, sy, terrain);
+                    // Arrival is handled by sim tick
+                } else {
+                    self.current_goal = Goal::Wander;
                 }
             }
             // Institutional goals resolve in the sim tick loop, not here.

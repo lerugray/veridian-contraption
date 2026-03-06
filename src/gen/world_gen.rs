@@ -3,14 +3,15 @@ use rand::{Rng, SeedableRng};
 
 use std::collections::HashMap;
 
-use crate::gen::{name_gen, dungeon_gen};
+use crate::gen::{name_gen, dungeon_gen, artifact_gen};
 use crate::sim::agent::{Agent, Disposition, Goal};
+use crate::sim::artifact::Artifact;
 use crate::sim::institution::{Institution, InstitutionKind};
 use crate::sim::site::Site;
 use crate::sim::world::*;
 
 /// Generate a complete world from a seed.
-pub fn generate_world(seed: u64) -> (World, Vec<Agent>, Vec<Institution>, Vec<Site>) {
+pub fn generate_world(seed: u64) -> (World, Vec<Agent>, Vec<Institution>, Vec<Site>, Vec<Artifact>) {
     let mut rng = StdRng::seed_from_u64(seed);
     let phonemes = name_gen::load_phoneme_data();
 
@@ -32,11 +33,77 @@ pub fn generate_world(seed: u64) -> (World, Vec<Agent>, Vec<Institution>, Vec<Si
     }
 
     let mut agents = generate_agents(&settlements, &peoples, &phonemes, &mut rng);
+
+    // Generate 5-10 adventurer agents with adventurer dispositions
+    let adventurer_count = rng.gen_range(5..=10);
+    let next_id = agents.len() as u64;
+    for i in 0..adventurer_count {
+        let people_id = rng.gen_range(0..peoples.len());
+        let name = name_gen::generate_personal_name(&phonemes, peoples[people_id].phoneme_set, &mut rng);
+        let settlement_idx = rng.gen_range(0..settlements.len());
+        let s = &settlements[settlement_idx];
+        let age = rng.gen_range(1825..10950); // 5-30 years old
+
+        agents.push(Agent {
+            id: next_id + i as u64,
+            name,
+            people_id,
+            x: s.x as u32,
+            y: s.y as u32,
+            health: rng.gen_range(70..=100),
+            age,
+            disposition: Disposition {
+                risk_tolerance: rng.gen_range(0.7..=1.0),
+                ambition: rng.gen_range(0.6..=1.0),
+                institutional_loyalty: rng.gen_range(0.0..=0.3),
+                paranoia: rng.gen_range(0.1..=0.6),
+            },
+            current_goal: Goal::Wander,
+            chronicle: Vec::new(),
+            alive: true,
+            epithets: Vec::new(),
+            last_epithet_tick: 0,
+            institution_ids: Vec::new(),
+            is_adventurer: true,
+            held_artifacts: Vec::new(),
+        });
+    }
+
     let institutions = generate_institutions(&settlements, &peoples, &phonemes, &mut agents, &mut rng);
 
     // Generate sites, passing institution info for controlling faction assignment
     let inst_info: Vec<(u64, String)> = institutions.iter().map(|i| (i.id, i.name.clone())).collect();
     let sites = dungeon_gen::generate_sites(&terrain, &phonemes, &inst_info, &mut rng);
+
+    // Generate artifacts, distributed between sites and settlements
+    let settlement_names: Vec<String> = settlements.iter().map(|s| s.name.clone()).collect();
+    let site_names: Vec<String> = sites.iter().map(|s| s.name.clone()).collect();
+    let artifacts = artifact_gen::generate_artifacts(
+        sites.len(),
+        settlements.len(),
+        &settlement_names,
+        &site_names,
+        &inst_info,
+        &phonemes,
+        &mut rng,
+    );
+
+    // Record artifact IDs on the sites that hold them
+    // (sites.artifacts vec is already empty, fill from artifact locations)
+    // We can't mutate sites here since we need to return them, but we'll build
+    // the artifact->site mapping and apply it.
+    let mut site_artifacts: Vec<Vec<u64>> = vec![Vec::new(); sites.len()];
+    for artifact in &artifacts {
+        if let crate::sim::artifact::ArtifactLocation::InSite(idx) = &artifact.current_location {
+            if *idx < sites.len() {
+                site_artifacts[*idx].push(artifact.id);
+            }
+        }
+    }
+    let mut sites = sites;
+    for (i, ids) in site_artifacts.into_iter().enumerate() {
+        sites[i].artifacts = ids;
+    }
 
     let world = World {
         seed,
@@ -47,7 +114,7 @@ pub fn generate_world(seed: u64) -> (World, Vec<Agent>, Vec<Institution>, Vec<Si
         tick: 0,
     };
 
-    (world, agents, institutions, sites)
+    (world, agents, institutions, sites, artifacts)
 }
 
 // ---------------------------------------------------------------------------
@@ -266,6 +333,8 @@ fn generate_agents(
             epithets: Vec::new(),
             last_epithet_tick: 0,
             institution_ids: Vec::new(),
+            is_adventurer: false,
+            held_artifacts: Vec::new(),
         });
     }
 

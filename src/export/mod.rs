@@ -179,11 +179,25 @@ pub fn export_character_chronicle(sim: &SimState, prefix: &str) -> Result<String
             writeln!(file, "  Epithets: {}", agent.epithets.join(", "))?;
         }
 
+        if agent.is_adventurer {
+            writeln!(file, "  Role: Adventurer")?;
+        }
+
         if !agent.institution_ids.is_empty() {
             let affils: Vec<String> = agent.institution_ids.iter()
                 .filter_map(|&id| sim.institutions.iter().find(|i| i.id == id).map(|i| format!("{} ({})", i.name, i.kind.label())))
                 .collect();
             writeln!(file, "  Affiliations: {}", affils.join(", "))?;
+        }
+
+        // Currently held artifacts
+        if !agent.held_artifacts.is_empty() {
+            writeln!(file, "  Held artifacts:")?;
+            for &art_id in &agent.held_artifacts {
+                if let Some(art) = sim.artifacts.iter().find(|a| a.id == art_id) {
+                    writeln!(file, "    - {} ({})", art.name, art.kind.label())?;
+                }
+            }
         }
 
         // Agent's events from the log

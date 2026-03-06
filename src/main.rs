@@ -107,8 +107,8 @@ fn run_app(
         if let AppMode::Generating { seed, ref mut frames_shown } = mode {
             *frames_shown += 1;
             if *frames_shown >= 3 {
-                let (world, agents, institutions, sites) = world_gen::generate_world(seed);
-                sim = Some(SimState::new(world, agents, institutions, sites));
+                let (world, agents, institutions, sites, artifacts) = world_gen::generate_world(seed);
+                sim = Some(SimState::new(world, agents, institutions, sites, artifacts));
                 mode = AppMode::InGame;
                 continue;
             }

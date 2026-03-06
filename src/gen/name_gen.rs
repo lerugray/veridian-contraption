@@ -413,6 +413,31 @@ pub fn generate_epithet(
                 _ => "of No Current Affiliation".to_string(),
             }
         }
+        EventType::ArtifactAcquired => {
+            match rng.gen_range(0..5) {
+                0 => "the Acquisitor".to_string(),
+                1 => "the Bearer of Relics".to_string(),
+                2 => format!("Who Retrieved Something from {}", loc),
+                3 => "the Collector".to_string(),
+                _ => "of Dubious Salvage".to_string(),
+            }
+        }
+        EventType::ArtifactDelivered => {
+            match rng.gen_range(0..4) {
+                0 => "the Courier".to_string(),
+                1 => format!("Who Delivered to {}", loc),
+                2 => "the Returning".to_string(),
+                _ => "the Bearer of Things Owed".to_string(),
+            }
+        }
+        EventType::AdventurerDiedInSite => {
+            match rng.gen_range(0..4) {
+                0 => "the Ill-Advised".to_string(),
+                1 => format!("Who Fell in {}", loc),
+                2 => "Whose File Was Closed Prematurely".to_string(),
+                _ => "the Architecturally Defeated".to_string(),
+            }
+        }
         _ => {
             // General epithets for other event types
             match rng.gen_range(0..10) {
