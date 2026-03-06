@@ -31,27 +31,30 @@ pub const ERA_THRESHOLD: u32 = 15;
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum SimSpeed {
     Paused,
+    Run05x,
     Run1x,
     Run5x,
-    Run20x,
+    Run10x,
 }
 
 impl SimSpeed {
     pub fn ticks_per_frame(self) -> u32 {
         match self {
             SimSpeed::Paused => 0,
+            SimSpeed::Run05x => 1,
             SimSpeed::Run1x => 1,
             SimSpeed::Run5x => 5,
-            SimSpeed::Run20x => 20,
+            SimSpeed::Run10x => 10,
         }
     }
 
     pub fn label(self) -> &'static str {
         match self {
             SimSpeed::Paused => "PAUSED",
+            SimSpeed::Run05x => "0.5x",
             SimSpeed::Run1x => "1x",
             SimSpeed::Run5x => "5x",
-            SimSpeed::Run20x => "20x",
+            SimSpeed::Run10x => "10x",
         }
     }
 }
@@ -1570,6 +1573,12 @@ impl SimState {
     pub fn step_frame(&mut self, frame_count: u64) {
         match self.speed {
             SimSpeed::Paused => {}
+            SimSpeed::Run05x => {
+                // ~2.5 ticks/sec at 30 FPS — half speed
+                if frame_count % 12 == 0 {
+                    self.tick();
+                }
+            }
             SimSpeed::Run1x => {
                 // ~5 ticks/sec at 30 FPS — slow enough to read log entries
                 if frame_count % 6 == 0 {
@@ -1581,8 +1590,8 @@ impl SimState {
                     self.tick();
                 }
             }
-            SimSpeed::Run20x => {
-                for _ in 0..20 {
+            SimSpeed::Run10x => {
+                for _ in 0..10 {
                     self.tick();
                 }
             }

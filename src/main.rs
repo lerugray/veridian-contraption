@@ -140,11 +140,15 @@ fn run_app(
                     s.step_frame(frame_count);
                 }
 
-                // Autosave every 500 ticks
-                if s.world.tick > 0 && s.world.tick - s.last_autosave_tick >= 500 {
+                // Autosave every 1000 ticks
+                if s.world.tick > 0 && s.world.tick - s.last_autosave_tick >= 1000 {
                     s.last_autosave_tick = s.world.tick;
+                    // If world has no save name yet, label it as autosave
+                    if s.save_name.is_none() {
+                        s.save_name = Some("autosave".to_string());
+                    }
                     match export::save_world(s, "autosave") {
-                        Ok(_) => { s.status_message = Some(("~ autosaved".to_string(), 40)); }
+                        Ok(_) => { s.status_message = Some(("~ autosaved".to_string(), 30)); }
                         Err(e) => s.set_status_message(format!("Autosave failed: {}", e)),
                     }
                 }
@@ -608,9 +612,10 @@ fn handle_main_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifi
                 sim.tick();
             }
         }
+        KeyCode::Char('0') => sim.speed = SimSpeed::Run05x,
         KeyCode::Char('1') => sim.speed = SimSpeed::Run1x,
-        KeyCode::Char('5') => sim.speed = SimSpeed::Run5x,
-        KeyCode::Char('2') => sim.speed = SimSpeed::Run20x,
+        KeyCode::Char('2') => sim.speed = SimSpeed::Run5x,
+        KeyCode::Char('3') => sim.speed = SimSpeed::Run10x,
         KeyCode::PageUp => sim.scroll_log_up(5),
         KeyCode::PageDown => sim.scroll_log_down(5),
         KeyCode::Char('i') => {
@@ -896,9 +901,10 @@ fn handle_site_view_input(sim: &mut SimState, key: KeyCode) {
                 sim.speed = SimSpeed::Paused;
             }
         }
+        KeyCode::Char('0') => sim.speed = SimSpeed::Run05x,
         KeyCode::Char('1') => sim.speed = SimSpeed::Run1x,
-        KeyCode::Char('5') => sim.speed = SimSpeed::Run5x,
-        KeyCode::Char('2') => sim.speed = SimSpeed::Run20x,
+        KeyCode::Char('2') => sim.speed = SimSpeed::Run5x,
+        KeyCode::Char('3') => sim.speed = SimSpeed::Run10x,
         KeyCode::Char('.') => {
             if sim.speed == SimSpeed::Paused {
                 sim.tick();

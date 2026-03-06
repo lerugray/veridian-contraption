@@ -278,7 +278,7 @@ fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
     // Track the current tick for "new entry" highlighting
     let current_tick = sim.world.tick;
 
-    for event in visible_events {
+    for (ei, event) in visible_events.iter().enumerate() {
         let tick_str = format!("[{}] ", event.tick);
         let desc = &event.description;
         let category_prefix = event.event_type.category_prefix();
@@ -291,6 +291,11 @@ fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
         let tick_color = Color::Rgb(70, 70, 80);
         let cat_color = event.event_type.log_color();
         let body_color = if is_recent { brighten_color(text_color) } else { text_color };
+
+        // Add a blank line between entries (not before the first one)
+        if ei > 0 {
+            all_lines.push(Line::from(""));
+        }
 
         if body_width < 10 {
             all_lines.push(Line::from(vec![
