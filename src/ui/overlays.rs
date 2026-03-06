@@ -552,6 +552,8 @@ pub fn draw_export_menu(frame: &mut Frame) {
         Line::from(Span::styled(" EXPORT", Style::default().fg(Color::White))),
         Line::from(""),
         Line::from(Span::styled(" [1] Export Live Log", Style::default().fg(Color::Gray))),
+        Line::from(Span::styled(" [2] Export Faction Record", Style::default().fg(Color::Gray))),
+        Line::from(Span::styled(" [3] Export Character Chronicles", Style::default().fg(Color::Gray))),
         Line::from(""),
         Line::from(Span::styled(" ESC to cancel", Style::default().fg(Color::DarkGray))),
     ];

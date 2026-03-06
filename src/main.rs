@@ -705,6 +705,20 @@ fn handle_export_menu_input(sim: &mut SimState, key: KeyCode) {
         KeyCode::Char('1') => {
             sim.overlay = Overlay::ExportInput(String::new());
         }
+        KeyCode::Char('2') => {
+            match export::export_faction_record(sim, "factions") {
+                Ok(path) => sim.set_status_message(format!("Exported to {}", path)),
+                Err(e) => sim.set_status_message(format!("Export failed: {}", e)),
+            }
+            sim.overlay = Overlay::None;
+        }
+        KeyCode::Char('3') => {
+            match export::export_character_chronicle(sim, "chronicles") {
+                Ok(path) => sim.set_status_message(format!("Exported to {}", path)),
+                Err(e) => sim.set_status_message(format!("Export failed: {}", e)),
+            }
+            sim.overlay = Overlay::None;
+        }
         _ => {}
     }
 }

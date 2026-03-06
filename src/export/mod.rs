@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use crate::sim::event::Event;
+use crate::sim::institution::Institution;
 use crate::sim::{SaveData, SimState};
 
 // ---------------------------------------------------------------------------
@@ -48,6 +49,168 @@ pub fn export_log(events: &[Event], prefix: &str) -> Result<String, Box<dyn std:
     writeln!(file, "--- End of export ({} entries) ---", events.len())?;
 
     Ok(path.to_string_lossy().to_string())
+}
+
+/// Export a Faction Record for all living institutions.
+pub fn export_faction_record(sim: &SimState, prefix: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let export_dir = PathBuf::from("exports");
+    fs::create_dir_all(&export_dir)?;
+
+    let timestamp = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let safe_prefix = sanitize_prefix(prefix, "factions");
+    let filename = format!("{}_{}.txt", safe_prefix, timestamp);
+    let path = export_dir.join(&filename);
+
+    let mut file = fs::File::create(&path)?;
+
+    writeln!(file, "VERIDIAN CONTRAPTION — FACTION RECORD")?;
+    writeln!(file, "World: {}  |  Tick: {}", sim.world.name, sim.world.tick)?;
+    writeln!(file, "======================================")?;
+    writeln!(file)?;
+
+    let living: Vec<&Institution> = sim.institutions.iter().filter(|i| i.alive).collect();
+    let defunct: Vec<&Institution> = sim.institutions.iter().filter(|i| !i.alive).collect();
+
+    writeln!(file, "ACTIVE INSTITUTIONS ({})", living.len())?;
+    writeln!(file, "--------------------------------------")?;
+    writeln!(file)?;
+
+    for inst in &living {
+        write_institution_record(&mut file, inst, sim)?;
+    }
+
+    if !defunct.is_empty() {
+        writeln!(file, "DEFUNCT INSTITUTIONS ({})", defunct.len())?;
+        writeln!(file, "--------------------------------------")?;
+        writeln!(file)?;
+        for inst in &defunct {
+            write_institution_record(&mut file, inst, sim)?;
+        }
+    }
+
+    writeln!(file, "--- End of Faction Record ({} total) ---", sim.institutions.len())?;
+
+    Ok(path.to_string_lossy().to_string())
+}
+
+fn write_institution_record(file: &mut fs::File, inst: &Institution, sim: &SimState) -> Result<(), Box<dyn std::error::Error>> {
+    writeln!(file, "  {}", inst.name)?;
+    writeln!(file, "  Kind: {}  |  Power: {}  |  Members: {}  |  Founded: tick {}", inst.kind.label(), inst.power, inst.member_ids.len(), inst.founded_tick)?;
+    writeln!(file, "  Charter: {}", inst.charter)?;
+    writeln!(file, "  Actual function: {}", inst.actual_function)?;
+    if !inst.doctrine.is_empty() {
+        writeln!(file, "  Doctrine: {}", inst.doctrine.join("; "))?;
+    }
+    if !inst.relationships.is_empty() {
+        for (&other_id, rel) in &inst.relationships {
+            let other_name = sim.institutions.iter()
+                .find(|i| i.id == other_id)
+                .map(|i| i.name.as_str())
+                .unwrap_or("unknown");
+            writeln!(file, "  Relationship: {} — {}", other_name, rel.label())?;
+        }
+    }
+    // Members
+    let member_names: Vec<String> = inst.member_ids.iter()
+        .filter_map(|&id| sim.agents.iter().find(|a| a.id == id).map(|a| a.display_name()))
+        .collect();
+    if !member_names.is_empty() {
+        writeln!(file, "  Members: {}", member_names.join(", "))?;
+    }
+    // Chronicle
+    if !inst.chronicle.is_empty() {
+        writeln!(file, "  Chronicle:")?;
+        for entry in &inst.chronicle {
+            writeln!(file, "    - {}", entry)?;
+        }
+    }
+    writeln!(file)?;
+    Ok(())
+}
+
+/// Export a Character Chronicle for all living agents.
+pub fn export_character_chronicle(sim: &SimState, prefix: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let export_dir = PathBuf::from("exports");
+    fs::create_dir_all(&export_dir)?;
+
+    let timestamp = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let safe_prefix = sanitize_prefix(prefix, "chronicles");
+    let filename = format!("{}_{}.txt", safe_prefix, timestamp);
+    let path = export_dir.join(&filename);
+
+    let mut file = fs::File::create(&path)?;
+
+    writeln!(file, "VERIDIAN CONTRAPTION — CHARACTER CHRONICLES")?;
+    writeln!(file, "World: {}  |  Tick: {}", sim.world.name, sim.world.tick)?;
+    writeln!(file, "============================================")?;
+    writeln!(file)?;
+
+    let mut living: Vec<usize> = sim.agents.iter().enumerate()
+        .filter(|(_, a)| a.alive)
+        .map(|(i, _)| i)
+        .collect();
+    living.sort_by(|&a, &b| sim.agents[a].name.cmp(&sim.agents[b].name));
+
+    writeln!(file, "LIVING AGENTS ({})", living.len())?;
+    writeln!(file, "--------------------------------------------")?;
+    writeln!(file)?;
+
+    for &idx in &living {
+        let agent = &sim.agents[idx];
+        let people_name = if agent.people_id < sim.world.peoples.len() {
+            &sim.world.peoples[agent.people_id].name
+        } else {
+            "Unknown"
+        };
+
+        writeln!(file, "  {}", agent.display_name())?;
+        writeln!(file, "  People: {}  |  Age: {} years  |  Health: {}/100", people_name, agent.age / 365, agent.health)?;
+        writeln!(file, "  Location: ({}, {})", agent.x, agent.y)?;
+
+        if !agent.epithets.is_empty() {
+            writeln!(file, "  Epithets: {}", agent.epithets.join(", "))?;
+        }
+
+        if !agent.institution_ids.is_empty() {
+            let affils: Vec<String> = agent.institution_ids.iter()
+                .filter_map(|&id| sim.institutions.iter().find(|i| i.id == id).map(|i| format!("{} ({})", i.name, i.kind.label())))
+                .collect();
+            writeln!(file, "  Affiliations: {}", affils.join(", "))?;
+        }
+
+        // Agent's events from the log
+        let agent_events: Vec<&Event> = sim.events.iter()
+            .filter(|e| e.subject_id == Some(agent.id))
+            .collect();
+        if !agent_events.is_empty() {
+            writeln!(file, "  Chronicle:")?;
+            for event in &agent_events {
+                writeln!(file, "    [{}] {}", event.tick, event.description)?;
+            }
+        }
+        writeln!(file)?;
+    }
+
+    writeln!(file, "--- End of Character Chronicles ({} agents) ---", living.len())?;
+
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Sanitize a user-provided prefix for use as a filename component.
+fn sanitize_prefix(prefix: &str, default: &str) -> String {
+    let safe: String = prefix
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    if safe.is_empty() { default.to_string() } else { safe }
 }
 
 // ---------------------------------------------------------------------------

@@ -99,10 +99,10 @@ prose, and runs continuously whether the player interacts or not.
 **Update this section at the end of every session.**
 
 ```
-CURRENT PHASE: Phase 2 IN PROGRESS
-LAST COMPLETED PROMPT: 2-B — Institution Simulation & Institutional Events
+CURRENT PHASE: Phase 2 COMPLETE
+LAST COMPLETED PROMPT: 2-C — Faction Record Export & Follow Mode
 STATUS: Working
-NEXT TASK: Phase 2-C — Faction Record Export & Follow Mode
+NEXT TASK: Phase 3 — Dungeons, Artifacts & Adventurers
 ```
 
 ---
