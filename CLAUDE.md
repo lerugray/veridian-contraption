@@ -100,9 +100,9 @@ prose, and runs continuously whether the player interacts or not.
 
 ```
 CURRENT PHASE: Phase 5 IN PROGRESS
-LAST COMPLETED PROMPT: Eschaton System (between 5-A and 5-B)
+LAST COMPLETED PROMPT: Phase 5-B — Visual Polish (color/symbol tuning, map legend, ASCII title)
 STATUS: Working
-NEXT TASK: Phase 5-B — Color/symbol tuning, full export system
+NEXT TASK: Phase 5-B continued — Full export system; Phase 5-C — Nested clause generation
 ```
 
 ---
@@ -204,11 +204,11 @@ Then update SESSION_NOTES.md before continuing.
 SPACE = pause/unpause | . = step | 1/5/2 = speed | q = quit
 
 ### Player-Facing Keybindings (target)
-- i = inspect entity
-- f = follow mode / faction list
+- i = inspect entity (search by name)
+- f = follow mode / F = faction list
 - a = world annals
 - e = export menu
-- w = world parameters
+- W = world parameters
 - l = map legend
 - ? = help
 - Shift+E = immanentize the eschaton (confirmation screen, left/right to navigate)

@@ -37,50 +37,80 @@ pub enum EventType {
 }
 
 impl EventType {
-    /// Log color by event category.
+    /// Log color by event category (truecolor).
     pub fn log_color(&self) -> Color {
         match self {
-            // Personal events — white
+            // Personal events — warm white
             EventType::AgentBorn
             | EventType::AgentDied
             | EventType::AgentArrived
             | EventType::AgentDeparted
-            | EventType::AgeEvent => Color::White,
+            | EventType::AgeEvent => Color::Rgb(200, 200, 195),
 
-            // Institutional/faction events — cyan
+            // Institutional/faction events — teal
             EventType::InstitutionFounded
             | EventType::InstitutionDissolved
             | EventType::SchismOccurred
             | EventType::DoctrineShifted
             | EventType::MemberJoined
             | EventType::MemberDeparted
-            | EventType::MemberExpelled => Color::Cyan,
+            | EventType::MemberExpelled => Color::Rgb(100, 210, 220),
 
-            // Political events — yellow
+            // Political events — amber
             EventType::AllianceFormed
             | EventType::AllianceStrained
-            | EventType::RivalryDeclared => Color::Yellow,
+            | EventType::RivalryDeclared => Color::Rgb(220, 200, 100),
 
-            // Environmental events — green
+            // Environmental events — spring green
             EventType::WeatherEvent
             | EventType::SettlementGrew
-            | EventType::SettlementShrank => Color::Green,
+            | EventType::SettlementShrank => Color::Rgb(110, 200, 120),
 
-            // Site events — red (matches dungeon map color)
+            // Site events — rust
             EventType::AgentEnteredSite
             | EventType::AgentLeftSite
-            | EventType::AdventurerDiedInSite => Color::Red,
+            | EventType::AdventurerDiedInSite => Color::Rgb(200, 110, 90),
 
-            // Artifact events — light yellow (treasure)
+            // Artifact events — gold
             EventType::ArtifactAcquired
-            | EventType::ArtifactDelivered => Color::LightYellow,
+            | EventType::ArtifactDelivered => Color::Rgb(240, 210, 100),
 
-            // Cosmological / world-level — magenta
+            // Cosmological / world-level — violet
             EventType::WorldGenesis
-            | EventType::CensusReport => Color::Magenta,
+            | EventType::CensusReport => Color::Rgb(190, 130, 220),
 
-            // Eschaton — bright red, unmissable
-            EventType::EschatonFired => Color::LightRed,
+            // Eschaton — bright crimson
+            EventType::EschatonFired => Color::Rgb(255, 80, 80),
+        }
+    }
+
+    /// Short category prefix for log display (color-coded).
+    pub fn category_prefix(&self) -> String {
+        match self {
+            EventType::AgentBorn | EventType::AgentDied | EventType::AgentArrived
+            | EventType::AgentDeparted | EventType::AgeEvent => "".to_string(),
+
+            EventType::InstitutionFounded | EventType::InstitutionDissolved
+            | EventType::SchismOccurred | EventType::DoctrineShifted
+            | EventType::MemberJoined | EventType::MemberDeparted
+            | EventType::MemberExpelled => "\u{25C6} ".to_string(), // ◆
+
+            EventType::AllianceFormed | EventType::AllianceStrained
+            | EventType::RivalryDeclared => "\u{2694} ".to_string(), // ⚔ (crossed swords — political)
+
+            EventType::WeatherEvent | EventType::SettlementGrew
+            | EventType::SettlementShrank => "\u{2618} ".to_string(), // ☘ (environmental)
+
+            EventType::AgentEnteredSite | EventType::AgentLeftSite
+            | EventType::AdventurerDiedInSite => "\u{2302} ".to_string(), // ⌂ (site)
+
+            EventType::ArtifactAcquired | EventType::ArtifactDelivered
+                => "\u{2726} ".to_string(), // ✦ (artifact)
+
+            EventType::WorldGenesis | EventType::CensusReport
+                => "\u{2735} ".to_string(), // ✵ (cosmological)
+
+            EventType::EschatonFired => "\u{2620} ".to_string(), // ☠ (eschaton)
         }
     }
 }

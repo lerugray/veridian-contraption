@@ -101,6 +101,8 @@ pub enum Overlay {
     FollowInstitutionPick(usize),
     /// Help screen showing all keybindings.
     Help,
+    /// Map legend showing symbol meanings.
+    MapLegend,
     /// Site list: browsable list of all sites. (selected index)
     SiteList(usize),
     /// Viewing a site interior. (site index, current floor index)
@@ -209,6 +211,8 @@ pub struct SimState {
     pub last_eschaton_tick: u64,
     /// Frames remaining to show "THE ESCHATON HAS OCCURRED" flash in status bar.
     pub eschaton_flash: u32,
+    /// Global frame counter for animations (not saved).
+    pub frame_count: u64,
 }
 
 impl SimState {
@@ -252,6 +256,7 @@ impl SimState {
             tension: 0.0,
             last_eschaton_tick: 0,
             eschaton_flash: 0,
+            frame_count: 0,
         }
     }
 
@@ -314,6 +319,7 @@ impl SimState {
             tension: data.tension,
             last_eschaton_tick: data.last_eschaton_tick,
             eschaton_flash: 0,
+            frame_count: 0,
         }
     }
 

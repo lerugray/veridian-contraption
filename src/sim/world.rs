@@ -31,16 +31,16 @@ impl Terrain {
         }
     }
 
-    /// Display color for this terrain type.
+    /// Display color for this terrain type (truecolor for expressive maps).
     pub fn color(self) -> Color {
         match self {
-            Terrain::DeepWater => Color::Blue,
-            Terrain::ShallowWater => Color::Cyan,
-            Terrain::Plains => Color::Green,
-            Terrain::Hills => Color::Yellow,
-            Terrain::Forest => Color::Rgb(0, 140, 0), // dark green
-            Terrain::Mountains => Color::Gray,
-            Terrain::Desert => Color::Rgb(210, 180, 60), // sandy yellow
+            Terrain::DeepWater => Color::Rgb(20, 60, 140),     // deep navy
+            Terrain::ShallowWater => Color::Rgb(60, 130, 190), // coastal blue
+            Terrain::Plains => Color::Rgb(90, 160, 60),        // living green
+            Terrain::Hills => Color::Rgb(170, 150, 80),        // tawny ochre
+            Terrain::Forest => Color::Rgb(30, 110, 40),        // dark canopy
+            Terrain::Mountains => Color::Rgb(140, 140, 155),   // slate grey
+            Terrain::Desert => Color::Rgb(210, 180, 60),       // sandy yellow
         }
     }
 
@@ -181,15 +181,15 @@ impl World {
             map.push(row);
         }
 
-        // Overlay settlements — marked with a bright symbol
+        // Overlay settlements — symbol scales with size, warm colors
         for s in &self.settlements {
             if s.y < MAP_HEIGHT && s.x < MAP_WIDTH {
-                let glyph = match s.size {
-                    SettlementSize::Hamlet => 'o',
-                    SettlementSize::Town => 'O',
-                    SettlementSize::City => '#',
+                let (glyph, color) = match s.size {
+                    SettlementSize::Hamlet => ('·', Color::Rgb(180, 170, 150)),   // dim stone
+                    SettlementSize::Town =>   ('o', Color::Rgb(230, 210, 160)),   // warm lantern
+                    SettlementSize::City =>   ('O', Color::Rgb(255, 240, 200)),   // bright hearth
                 };
-                map[s.y][s.x] = (glyph, Color::White);
+                map[s.y][s.x] = (glyph, color);
             }
         }
 

@@ -713,50 +713,61 @@ pub fn draw_site_list(frame: &mut Frame, sim: &SimState, selected: usize) {
 
 /// Draw the help overlay showing all keybindings.
 pub fn draw_help(frame: &mut Frame) {
-    let area = centered_rect(55, 75, frame.area());
+    let area = centered_rect(58, 80, frame.area());
     frame.render_widget(Clear, area);
 
-    let key_style = Style::default().fg(Color::Yellow);
-    let desc_style = Style::default().fg(Color::Gray);
-    let header_style = Style::default().fg(Color::White);
+    let key_style = Style::default().fg(Color::Rgb(220, 190, 100));
+    let desc_style = Style::default().fg(Color::Rgb(170, 170, 165));
+    let header_style = Style::default().fg(Color::Rgb(130, 200, 160));
+    let title_style = Style::default().fg(Color::Rgb(220, 210, 180));
+    let dim_style = Style::default().fg(Color::Rgb(80, 80, 85));
+    let sep = Line::from(Span::styled(
+        "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
+        dim_style,
+    ));
 
     let lines: Vec<Line> = vec![
-        Line::from(Span::styled(" KEYBINDINGS", header_style)),
+        Line::from(Span::styled(" VERIDIAN CONTRAPTION \u{2014} REFERENCE", title_style)),
         Line::from(""),
-        Line::from(Span::styled(" SIMULATION", header_style)),
+        Line::from(Span::styled(" SIMULATION CONTROL", header_style)),
         Line::from(vec![Span::styled("   SPACE    ", key_style), Span::styled("Pause / unpause", desc_style)]),
         Line::from(vec![Span::styled("   .        ", key_style), Span::styled("Step one tick (while paused)", desc_style)]),
         Line::from(vec![Span::styled("   1        ", key_style), Span::styled("Speed 1x", desc_style)]),
         Line::from(vec![Span::styled("   5        ", key_style), Span::styled("Speed 5x", desc_style)]),
         Line::from(vec![Span::styled("   2        ", key_style), Span::styled("Speed 20x", desc_style)]),
-        Line::from(""),
+        sep.clone(),
         Line::from(Span::styled(" NAVIGATION", header_style)),
         Line::from(vec![Span::styled("   i        ", key_style), Span::styled("Find agent by name", desc_style)]),
-        Line::from(vec![Span::styled("   Tab      ", key_style), Span::styled("Browse agent list", desc_style)]),
+        Line::from(vec![Span::styled("   Tab      ", key_style), Span::styled("Browse all agents", desc_style)]),
         Line::from(vec![Span::styled("   f        ", key_style), Span::styled("Follow agent or institution", desc_style)]),
-        Line::from(vec![Span::styled("   F        ", key_style), Span::styled("View faction list", desc_style)]),
-        Line::from(vec![Span::styled("   s        ", key_style), Span::styled("Browse sites (dungeons, ruins, etc.)", desc_style)]),
+        Line::from(vec![Span::styled("   F        ", key_style), Span::styled("Faction list", desc_style)]),
+        Line::from(vec![Span::styled("   s        ", key_style), Span::styled("Sites (dungeons, ruins, shrines)", desc_style)]),
+        Line::from(vec![Span::styled("   l        ", key_style), Span::styled("Map legend", desc_style)]),
+        Line::from(vec![Span::styled("   PgUp/Dn  ", key_style), Span::styled("Scroll log pane", desc_style)]),
+        sep.clone(),
+        Line::from(Span::styled(" INSPECTION", header_style)),
         Line::from(vec![Span::styled("   W        ", key_style), Span::styled("World Assessment Report", desc_style)]),
         Line::from(vec![Span::styled("   a        ", key_style), Span::styled("World Annals (era history)", desc_style)]),
-        Line::from(vec![Span::styled("   PgUp/Dn  ", key_style), Span::styled("Scroll log", desc_style)]),
-        Line::from(""),
+        sep.clone(),
         Line::from(Span::styled(" EXPORT & SAVE", header_style)),
-        Line::from(vec![Span::styled("   e        ", key_style), Span::styled("Export menu (log, factions, chronicles, annals)", desc_style)]),
-        Line::from(vec![Span::styled("   Ctrl+S   ", key_style), Span::styled("Save world (silent re-save if named)", desc_style)]),
-        Line::from(vec![Span::styled("  Ctrl+Sh+S ", key_style), Span::styled("Save As (always prompts for name)", desc_style)]),
-        Line::from(""),
-        Line::from(Span::styled(" OTHER", header_style)),
-        Line::from(vec![Span::styled("   Shift+E  ", key_style), Span::styled("Immanentize the Eschaton (with confirm)", desc_style)]),
+        Line::from(vec![Span::styled("   e        ", key_style), Span::styled("Export (log, factions, chronicles, annals)", desc_style)]),
+        Line::from(vec![Span::styled("   Ctrl+S   ", key_style), Span::styled("Save (silent re-save if named)", desc_style)]),
+        Line::from(vec![Span::styled("  Ctrl+Sh+S ", key_style), Span::styled("Save As (always prompts)", desc_style)]),
+        sep.clone(),
+        Line::from(Span::styled(" THE ESCHATON", header_style)),
+        Line::from(vec![Span::styled("   Shift+E  ", key_style), Span::styled("Immanentize the Eschaton", desc_style)]),
+        Line::from(vec![Span::styled("            ", key_style), Span::styled("(confirmation required; irreversible)", dim_style)]),
+        sep,
         Line::from(vec![Span::styled("   q        ", key_style), Span::styled("Return to main menu", desc_style)]),
         Line::from(vec![Span::styled("   ?        ", key_style), Span::styled("This help screen", desc_style)]),
         Line::from(""),
-        Line::from(Span::styled(" ESC to close", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled(" ESC to close", dim_style)),
     ];
 
     let block = Block::default()
         .title(" HELP ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::White));
+        .border_style(Style::default().fg(Color::Rgb(100, 100, 90)));
 
     let widget = Paragraph::new(lines).block(block);
     frame.render_widget(widget, area);
@@ -1489,6 +1500,50 @@ fn disposition_bar(value: f32) -> String {
     let filled = (value * 10.0).round() as usize;
     let empty = 10 - filled.min(10);
     format!("[{}{}] {:.0}%", "#".repeat(filled), ".".repeat(empty), value * 100.0)
+}
+
+/// Draw the map legend overlay showing symbol meanings.
+pub fn draw_map_legend(frame: &mut Frame) {
+    let area = centered_rect(45, 70, frame.area());
+    frame.render_widget(Clear, area);
+
+    let header = Style::default().fg(Color::Rgb(220, 210, 180));
+    let desc = Style::default().fg(Color::Rgb(160, 160, 155));
+    let dim = Style::default().fg(Color::Rgb(80, 80, 85));
+
+    let lines: Vec<Line> = vec![
+        Line::from(Span::styled(" MAP LEGEND", header)),
+        Line::from(""),
+        Line::from(Span::styled(" TERRAIN", header)),
+        Line::from(vec![Span::styled("   ~  ", Style::default().fg(Color::Rgb(20, 60, 140))),   Span::styled("Deep Water", desc)]),
+        Line::from(vec![Span::styled("   :  ", Style::default().fg(Color::Rgb(60, 130, 190))),   Span::styled("Shallow Water", desc)]),
+        Line::from(vec![Span::styled("   .  ", Style::default().fg(Color::Rgb(90, 160, 60))),    Span::styled("Plains", desc)]),
+        Line::from(vec![Span::styled("   ^  ", Style::default().fg(Color::Rgb(170, 150, 80))),   Span::styled("Hills", desc)]),
+        Line::from(vec![Span::styled("   T  ", Style::default().fg(Color::Rgb(30, 110, 40))),    Span::styled("Forest", desc)]),
+        Line::from(vec![Span::styled("   M  ", Style::default().fg(Color::Rgb(140, 140, 155))),  Span::styled("Mountains", desc)]),
+        Line::from(vec![Span::styled("   s  ", Style::default().fg(Color::Rgb(210, 180, 60))),   Span::styled("Desert", desc)]),
+        Line::from(""),
+        Line::from(Span::styled(" SETTLEMENTS", header)),
+        Line::from(vec![Span::styled("   \u{00B7}  ", Style::default().fg(Color::Rgb(180, 170, 150))),  Span::styled("Hamlet", desc)]),
+        Line::from(vec![Span::styled("   o  ", Style::default().fg(Color::Rgb(230, 210, 160))),  Span::styled("Town", desc)]),
+        Line::from(vec![Span::styled("   O  ", Style::default().fg(Color::Rgb(255, 240, 200))),  Span::styled("City", desc)]),
+        Line::from(""),
+        Line::from(Span::styled(" ENTITIES", header)),
+        Line::from(vec![Span::styled("   @  ", Style::default().fg(Color::Rgb(230, 120, 220))),  Span::styled("Agent (color = people)", desc)]),
+        Line::from(vec![Span::styled("   3  ", Style::default().fg(Color::Rgb(100, 220, 230))),  Span::styled("Agent group (count shown)", desc)]),
+        Line::from(vec![Span::styled("   X  ", Style::default().fg(Color::LightRed)),             Span::styled("Followed agent", desc)]),
+        Line::from(vec![Span::styled("   \u{03A9}  ", Style::default().fg(Color::Red)),           Span::styled("Site (dungeon, ruin, etc.)", desc)]),
+        Line::from(""),
+        Line::from(Span::styled(" ESC or l to close", dim)),
+    ];
+
+    let block = Block::default()
+        .title(" LEGEND ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Rgb(120, 110, 90)));
+
+    let widget = Paragraph::new(lines).block(block);
+    frame.render_widget(widget, area);
 }
 
 /// Helper: create a centered Rect with percentage width/height of the parent.

@@ -72,12 +72,12 @@ impl Tile {
     pub fn color(self) -> ratatui::style::Color {
         use ratatui::style::Color;
         match self {
-            Tile::Floor => Color::Gray,
-            Tile::Wall => Color::White,
-            Tile::Door => Color::Yellow,
-            Tile::StairDown | Tile::StairUp => Color::LightCyan,
-            Tile::Water => Color::Blue,
-            Tile::Pit => Color::DarkGray,
+            Tile::Floor => Color::Rgb(70, 65, 60),        // dim stone — atmospheric
+            Tile::Wall => Color::Rgb(130, 120, 110),      // visible but not glaring
+            Tile::Door => Color::Rgb(200, 170, 80),       // warm wood
+            Tile::StairDown | Tile::StairUp => Color::Rgb(100, 200, 220), // bright feature
+            Tile::Water => Color::Rgb(40, 90, 160),       // underground pool
+            Tile::Pit => Color::Rgb(30, 25, 20),          // dark void
         }
     }
 

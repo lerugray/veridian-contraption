@@ -135,6 +135,7 @@ fn run_app(
         // Run simulation ticks when in-game and no overlay is active
         if let AppMode::InGame = &mode {
             if let Some(ref mut s) = sim {
+                s.frame_count = frame_count;
                 if s.overlay == Overlay::None || matches!(s.overlay, Overlay::SiteView(_, _)) {
                     s.step_frame(frame_count);
                 }
@@ -540,6 +541,7 @@ fn handle_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifiers) 
         Overlay::AgentList(_) => { handle_agent_list_input(sim, key); InputResult::Continue }
         Overlay::FactionList(_) => { handle_faction_list_input(sim, key); InputResult::Continue }
         Overlay::Help => { if matches!(key, KeyCode::Esc | KeyCode::Char('?')) { sim.overlay = Overlay::None; } InputResult::Continue }
+        Overlay::MapLegend => { if matches!(key, KeyCode::Esc | KeyCode::Char('l')) { sim.overlay = Overlay::None; } InputResult::Continue }
         Overlay::SiteList(_) => { handle_site_list_input(sim, key); InputResult::Continue }
         Overlay::WorldReport(_) => { handle_world_report_overlay_input(sim, key); InputResult::Continue }
         Overlay::SiteView(_, _) => { handle_site_view_input(sim, key); InputResult::Continue }
@@ -642,6 +644,9 @@ fn handle_main_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifi
             if !sim.sites.is_empty() {
                 sim.overlay = Overlay::SiteList(0);
             }
+        }
+        KeyCode::Char('l') => {
+            sim.overlay = Overlay::MapLegend;
         }
         KeyCode::Char('E') => {
             // Immanentize the Eschaton — open confirmation screen

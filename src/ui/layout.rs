@@ -11,14 +11,16 @@ use crate::sim::world::{MAP_HEIGHT, MAP_WIDTH};
 use crate::sim::site::{FLOOR_HEIGHT, FLOOR_WIDTH};
 use crate::ui::overlays;
 
-/// Colors assigned to agents based on their people_id.
-const PEOPLE_COLORS: [Color; 6] = [
-    Color::Magenta,
-    Color::Cyan,
-    Color::LightYellow,
-    Color::LightGreen,
-    Color::LightRed,
-    Color::LightBlue,
+/// Colors assigned to agents based on their people_id (bright, legible on dark bg).
+const PEOPLE_COLORS: [Color; 8] = [
+    Color::Rgb(230, 120, 220), // orchid
+    Color::Rgb(100, 220, 230), // teal
+    Color::Rgb(240, 220, 100), // gold
+    Color::Rgb(120, 230, 130), // mint
+    Color::Rgb(240, 130, 110), // coral
+    Color::Rgb(130, 170, 255), // periwinkle
+    Color::Rgb(255, 180, 100), // amber
+    Color::Rgb(180, 140, 255), // lavender
 ];
 
 /// Draw the main two-panel layout: world map (left) and live log (right).
@@ -118,6 +120,9 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
         Overlay::EschatonConfirm(selected) => {
             overlays::draw_eschaton_confirm(frame, sim, *selected);
         }
+        Overlay::MapLegend => {
+            overlays::draw_map_legend(frame);
+        }
     }
 }
 
@@ -125,7 +130,7 @@ fn draw_map_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
     let block = Block::default()
         .title(format!(" {} ", sim.world.name))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray));
+        .border_style(Style::default().fg(Color::Rgb(60, 60, 70)));
 
     let mut rendered = sim.world.render_map();
 
@@ -154,16 +159,24 @@ fn draw_map_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
         }
     }
 
-    // Overlay agents on the map
+    // Overlay agents on the map — pulse between @ and • for liveness
+    let pulse_bright = (sim.frame_count / 15) % 2 == 0; // toggles every ~0.5s at 30fps
     for y in 0..MAP_HEIGHT {
         for x in 0..MAP_WIDTH {
             let count = agent_counts[y][x];
             if count == 0 {
                 continue;
             }
-            let color = PEOPLE_COLORS[agent_people[y][x] % PEOPLE_COLORS.len()];
+            let base_color = PEOPLE_COLORS[agent_people[y][x] % PEOPLE_COLORS.len()];
+            // Dim the color slightly on the off-pulse for a breathing effect
+            let color = if pulse_bright {
+                base_color
+            } else {
+                dim_color(base_color)
+            };
             if count == 1 {
-                rendered[y][x] = ('@', color);
+                let ch = if pulse_bright { '@' } else { '\u{2022}' }; // @ or •
+                rendered[y][x] = (ch, color);
             } else if count < 10 {
                 let ch = char::from_digit(count, 10).unwrap_or('*');
                 rendered[y][x] = (ch, color);
@@ -173,12 +186,17 @@ fn draw_map_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
         }
     }
 
-    // Highlight followed agent with a distinct marker
+    // Highlight followed agent with a distinct pulsing marker
     if let Some((fx, fy)) = sim.follow_agent_pos() {
         let fx = fx as usize;
         let fy = fy as usize;
         if fy < MAP_HEIGHT && fx < MAP_WIDTH {
-            rendered[fy][fx] = ('X', Color::LightRed);
+            let follow_color = if pulse_bright {
+                Color::Rgb(255, 100, 100)
+            } else {
+                Color::Rgb(200, 70, 70)
+            };
+            rendered[fy][fx] = ('X', follow_color);
         }
     }
 
@@ -233,9 +251,9 @@ fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
         .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(if scrolled {
-            Color::Yellow
+            Color::Rgb(200, 170, 80)
         } else {
-            Color::DarkGray
+            Color::Rgb(60, 60, 70)
         }));
 
     let inner_height = area.height.saturating_sub(2) as usize;
@@ -257,17 +275,28 @@ fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
     // Build formatted lines from the visible events (events may wrap to multiple display lines).
     let mut all_lines: Vec<Line> = Vec::new();
 
+    // Track the current tick for "new entry" highlighting
+    let current_tick = sim.world.tick;
+
     for event in visible_events {
         let tick_str = format!("[{}] ", event.tick);
         let desc = &event.description;
-        let prefix_len = tick_str.len();
+        let category_prefix = event.event_type.category_prefix();
+        let full_prefix = format!("{}{}", tick_str, category_prefix);
+        let prefix_len = full_prefix.len();
         let body_width = inner_width.saturating_sub(prefix_len);
         let text_color = event.event_type.log_color();
+        // Highlight entries from the last 3 ticks with brighter text
+        let is_recent = current_tick.saturating_sub(event.tick) < 3 && !scrolled;
+        let tick_color = Color::Rgb(70, 70, 80);
+        let cat_color = event.event_type.log_color();
+        let body_color = if is_recent { brighten_color(text_color) } else { text_color };
 
         if body_width < 10 {
             all_lines.push(Line::from(vec![
-                Span::styled(tick_str.clone(), Style::default().fg(Color::DarkGray)),
-                Span::styled(desc.clone(), Style::default().fg(text_color)),
+                Span::styled(tick_str.clone(), Style::default().fg(tick_color)),
+                Span::styled(category_prefix.clone(), Style::default().fg(cat_color)),
+                Span::styled(desc.clone(), Style::default().fg(body_color)),
             ]));
         } else {
             let words: Vec<&str> = desc.split_whitespace().collect();
@@ -281,15 +310,16 @@ fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
                 if line_buf.len() + space + word.len() > limit && !line_buf.is_empty() {
                     if first {
                         all_lines.push(Line::from(vec![
-                            Span::styled(tick_str.clone(), Style::default().fg(Color::DarkGray)),
-                            Span::styled(line_buf.clone(), Style::default().fg(text_color)),
+                            Span::styled(tick_str.clone(), Style::default().fg(tick_color)),
+                            Span::styled(category_prefix.clone(), Style::default().fg(cat_color)),
+                            Span::styled(line_buf.clone(), Style::default().fg(body_color)),
                         ]));
                         first = false;
                     } else {
                         let indent = " ".repeat(prefix_len);
                         all_lines.push(Line::from(vec![
-                            Span::styled(indent, Style::default().fg(Color::DarkGray)),
-                            Span::styled(line_buf.clone(), Style::default().fg(text_color)),
+                            Span::styled(indent, Style::default().fg(tick_color)),
+                            Span::styled(line_buf.clone(), Style::default().fg(body_color)),
                         ]));
                     }
                     line_buf.clear();
@@ -304,14 +334,15 @@ fn draw_log_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
             if !line_buf.is_empty() {
                 if first {
                     all_lines.push(Line::from(vec![
-                        Span::styled(tick_str.clone(), Style::default().fg(Color::DarkGray)),
-                        Span::styled(line_buf, Style::default().fg(text_color)),
+                        Span::styled(tick_str.clone(), Style::default().fg(tick_color)),
+                        Span::styled(category_prefix.clone(), Style::default().fg(cat_color)),
+                        Span::styled(line_buf, Style::default().fg(body_color)),
                     ]));
                 } else {
                     let indent = " ".repeat(prefix_len);
                     all_lines.push(Line::from(vec![
-                        Span::styled(indent, Style::default().fg(Color::DarkGray)),
-                        Span::styled(line_buf, Style::default().fg(text_color)),
+                        Span::styled(indent, Style::default().fg(tick_color)),
+                        Span::styled(line_buf, Style::default().fg(body_color)),
                     ]));
                 }
             }
@@ -334,7 +365,7 @@ fn draw_follow_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::LightRed));
+        .border_style(Style::default().fg(Color::Rgb(200, 100, 90)));
 
     let inner_height = area.height.saturating_sub(2) as usize;
     let inner_width = area.width.saturating_sub(2) as usize;
@@ -349,18 +380,23 @@ fn draw_follow_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
         return;
     }
 
-    // Build wrapped lines from follow events (reuse same word-wrap logic)
+    // Build wrapped lines from follow events (same style as main log)
     let mut all_lines: Vec<Line> = Vec::new();
     for event in &follow_events {
         let tick_str = format!("[{}] ", event.tick);
         let desc = &event.description;
-        let prefix_len = tick_str.len();
+        let category_prefix = event.event_type.category_prefix();
+        let full_prefix = format!("{}{}", tick_str, category_prefix);
+        let prefix_len = full_prefix.len();
         let body_width = inner_width.saturating_sub(prefix_len);
         let text_color = event.event_type.log_color();
+        let tick_color = Color::Rgb(70, 70, 80);
+        let cat_color = event.event_type.log_color();
 
         if body_width < 10 {
             all_lines.push(Line::from(vec![
-                Span::styled(tick_str.clone(), Style::default().fg(Color::DarkGray)),
+                Span::styled(tick_str.clone(), Style::default().fg(tick_color)),
+                Span::styled(category_prefix.clone(), Style::default().fg(cat_color)),
                 Span::styled(desc.clone(), Style::default().fg(text_color)),
             ]));
         } else {
@@ -373,14 +409,15 @@ fn draw_follow_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
                 if line_buf.len() + space + word.len() > body_width && !line_buf.is_empty() {
                     if first {
                         all_lines.push(Line::from(vec![
-                            Span::styled(tick_str.clone(), Style::default().fg(Color::DarkGray)),
+                            Span::styled(tick_str.clone(), Style::default().fg(tick_color)),
+                            Span::styled(category_prefix.clone(), Style::default().fg(cat_color)),
                             Span::styled(line_buf.clone(), Style::default().fg(text_color)),
                         ]));
                         first = false;
                     } else {
                         let indent = " ".repeat(prefix_len);
                         all_lines.push(Line::from(vec![
-                            Span::styled(indent, Style::default().fg(Color::DarkGray)),
+                            Span::styled(indent, Style::default().fg(tick_color)),
                             Span::styled(line_buf.clone(), Style::default().fg(text_color)),
                         ]));
                     }
@@ -392,13 +429,14 @@ fn draw_follow_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
             if !line_buf.is_empty() {
                 if first {
                     all_lines.push(Line::from(vec![
-                        Span::styled(tick_str.clone(), Style::default().fg(Color::DarkGray)),
+                        Span::styled(tick_str.clone(), Style::default().fg(tick_color)),
+                        Span::styled(category_prefix.clone(), Style::default().fg(cat_color)),
                         Span::styled(line_buf, Style::default().fg(text_color)),
                     ]));
                 } else {
                     let indent = " ".repeat(prefix_len);
                     all_lines.push(Line::from(vec![
-                        Span::styled(indent, Style::default().fg(Color::DarkGray)),
+                        Span::styled(indent, Style::default().fg(tick_color)),
                         Span::styled(line_buf, Style::default().fg(text_color)),
                     ]));
                 }
@@ -509,9 +547,13 @@ fn draw_site_panel(frame: &mut Frame, area: Rect, sim: &SimState, site_idx: usiz
 fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
     // Eschaton flash takes priority over everything
     if sim.eschaton_flash > 0 {
-        let flash_color = if sim.eschaton_flash % 10 < 5 { Color::LightRed } else { Color::Yellow };
-        let status = Paragraph::new(" ▓▓▓  THE ESCHATON HAS OCCURRED  ▓▓▓")
-            .style(Style::default().fg(flash_color).bg(Color::Black));
+        let flash_color = if sim.eschaton_flash % 10 < 5 {
+            Color::Rgb(255, 60, 60)
+        } else {
+            Color::Rgb(255, 200, 60)
+        };
+        let status = Paragraph::new(" \u{2593}\u{2593}\u{2593}  THE ESCHATON HAS OCCURRED  \u{2593}\u{2593}\u{2593}")
+            .style(Style::default().fg(flash_color).bg(Color::Rgb(20, 10, 10)));
         frame.render_widget(status, area);
         return;
     }
@@ -519,7 +561,7 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
     // If there's a temporary status message, show it instead of the default bar
     if let Some((ref msg, _)) = sim.status_message {
         let status = Paragraph::new(format!(" {}", msg))
-            .style(Style::default().fg(Color::Yellow).bg(Color::DarkGray));
+            .style(Style::default().fg(Color::Rgb(220, 200, 100)).bg(Color::Rgb(30, 30, 40)));
         frame.render_widget(status, area);
         return;
     }
@@ -541,12 +583,83 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
         String::new()
     };
 
-    let status_text = format!(
-        " {}  |  Tick {}  |  {}  |  Pop: {}  |  [{}]{}  |  1/5/2=spd a=annals s=sites ?=help",
-        sim.world.name, sim.world.tick, sim.speed.label(), alive_count, save_label, site_hint,
-    );
-    let status = Paragraph::new(status_text)
-        .style(Style::default().fg(Color::White).bg(Color::DarkGray));
+    // Activity spinner when sim is running
+    let spinner = if sim.speed != crate::sim::SimSpeed::Paused {
+        const SPINNER: &[char] = &['◜', '◝', '◞', '◟'];
+        let idx = (sim.frame_count / 4) as usize % SPINNER.len();
+        format!("{} ", SPINNER[idx])
+    } else {
+        "  ".to_string()
+    };
 
+    let status_line = Line::from(vec![
+        Span::styled(&spinner, Style::default().fg(Color::Rgb(100, 200, 120)).bg(Color::Rgb(30, 30, 40))),
+        Span::styled(
+            format!("{}  ", sim.world.name),
+            Style::default().fg(Color::Rgb(180, 200, 160)).bg(Color::Rgb(30, 30, 40)),
+        ),
+        Span::styled(
+            format!("Tick {}  ", sim.world.tick),
+            Style::default().fg(Color::Rgb(140, 140, 150)).bg(Color::Rgb(30, 30, 40)),
+        ),
+        Span::styled(
+            format!("{}  ", sim.speed.label()),
+            Style::default().fg(if sim.speed == crate::sim::SimSpeed::Paused {
+                Color::Rgb(200, 160, 80)
+            } else {
+                Color::Rgb(100, 200, 120)
+            }).bg(Color::Rgb(30, 30, 40)),
+        ),
+        Span::styled(
+            format!("Pop: {}  ", alive_count),
+            Style::default().fg(Color::Rgb(140, 140, 150)).bg(Color::Rgb(30, 30, 40)),
+        ),
+        Span::styled(
+            format!("[{}]", save_label),
+            Style::default().fg(Color::Rgb(100, 100, 110)).bg(Color::Rgb(30, 30, 40)),
+        ),
+        Span::styled(
+            site_hint,
+            Style::default().fg(Color::Rgb(180, 140, 100)).bg(Color::Rgb(30, 30, 40)),
+        ),
+        Span::styled(
+            "  ?=help l=legend",
+            Style::default().fg(Color::Rgb(80, 80, 90)).bg(Color::Rgb(30, 30, 40)),
+        ),
+    ]);
+
+    let status = Paragraph::new(status_line)
+        .style(Style::default().bg(Color::Rgb(30, 30, 40)));
     frame.render_widget(status, area);
+}
+
+/// Dim a Color by reducing its brightness (for pulse animation).
+fn dim_color(color: Color) -> Color {
+    match color {
+        Color::Rgb(r, g, b) => Color::Rgb(
+            (r as u16 * 6 / 10) as u8,
+            (g as u16 * 6 / 10) as u8,
+            (b as u16 * 6 / 10) as u8,
+        ),
+        other => other,
+    }
+}
+
+/// Brighten a Color for highlighting new log entries.
+fn brighten_color(color: Color) -> Color {
+    match color {
+        Color::Rgb(r, g, b) => Color::Rgb(
+            (r as u16 + (255 - r as u16) / 3).min(255) as u8,
+            (g as u16 + (255 - g as u16) / 3).min(255) as u8,
+            (b as u16 + (255 - b as u16) / 3).min(255) as u8,
+        ),
+        // For non-RGB colors, just return White as a bright fallback
+        Color::White => Color::White,
+        Color::Cyan => Color::LightCyan,
+        Color::Yellow => Color::LightYellow,
+        Color::Green => Color::LightGreen,
+        Color::Red => Color::LightRed,
+        Color::Magenta => Color::LightMagenta,
+        other => other,
+    }
 }

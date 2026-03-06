@@ -37,11 +37,18 @@ pub fn draw_main_menu(frame: &mut Frame, selected: usize, has_autosave: bool) {
     let area = frame.area();
     frame.render_widget(Clear, area);
 
+    // Fill background with dark color
+    let bg = Paragraph::new("")
+        .style(Style::default().bg(Color::Rgb(15, 15, 20)));
+    frame.render_widget(bg, area);
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(25),
-            Constraint::Length(8),  // title block
+            Constraint::Percentage(15),
+            Constraint::Length(10), // title block (ASCII art)
+            Constraint::Length(2),  // spacer
+            Constraint::Length(2),  // tagline
             Constraint::Length(2),  // spacer
             Constraint::Length(8),  // menu items
             Constraint::Min(1),    // bottom spacer
@@ -49,27 +56,43 @@ pub fn draw_main_menu(frame: &mut Frame, selected: usize, has_autosave: bool) {
         ])
         .split(area);
 
-    // Title
+    // ASCII art title
+    let title_color = Color::Rgb(80, 180, 100);
+    let title_dim = Color::Rgb(40, 100, 55);
     let title_lines = vec![
-        Line::from(""),
         Line::from(Span::styled(
-            "VERIDIAN CONTRAPTION",
-            Style::default().fg(Color::Green),
+            " \u{2584}\u{2584}\u{2584}\u{2584}\u{2584}                                               ",
+            Style::default().fg(title_dim),
         )),
+        Line::from(vec![
+            Span::styled(" \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}  ", Style::default().fg(title_color)),
+            Span::styled("VERIDIAN", Style::default().fg(title_color)),
+        ]),
+        Line::from(vec![
+            Span::styled("  \u{2580}\u{2580}\u{2580}\u{2580}\u{2580}   ", Style::default().fg(title_dim)),
+            Span::styled("CONTRAPTION", Style::default().fg(title_color)),
+        ]),
         Line::from(""),
-        Line::from(Span::styled(
-            "A World-Simulator of Considerable",
-            Style::default().fg(Color::DarkGray),
-        )),
-        Line::from(Span::styled(
-            "Density and Dubious Intent",
-            Style::default().fg(Color::DarkGray),
-        )),
-        Line::from(""),
+        Line::from(vec![
+            Span::styled("  \u{250C}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}", Style::default().fg(Color::Rgb(50, 50, 60))),
+        ]),
+        Line::from(vec![
+            Span::styled("  \u{2502} ", Style::default().fg(Color::Rgb(50, 50, 60))),
+            Span::styled("A World-Simulator of Considerable    ", Style::default().fg(Color::Rgb(120, 120, 110))),
+            Span::styled(" \u{2502}", Style::default().fg(Color::Rgb(50, 50, 60))),
+        ]),
+        Line::from(vec![
+            Span::styled("  \u{2502} ", Style::default().fg(Color::Rgb(50, 50, 60))),
+            Span::styled("Density and Dubious Intent           ", Style::default().fg(Color::Rgb(120, 120, 110))),
+            Span::styled(" \u{2502}", Style::default().fg(Color::Rgb(50, 50, 60))),
+        ]),
+        Line::from(vec![
+            Span::styled("  \u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2518}", Style::default().fg(Color::Rgb(50, 50, 60))),
+        ]),
     ];
-    let title_widget = Paragraph::new(title_lines)
-        .alignment(ratatui::layout::Alignment::Center);
-    frame.render_widget(title_widget, chunks[1]);
+    let title_area = centered_horizontal(50, chunks[1]);
+    let title_widget = Paragraph::new(title_lines);
+    frame.render_widget(title_widget, title_area);
 
     // Menu options
     let options = [
@@ -83,32 +106,37 @@ pub fn draw_main_menu(frame: &mut Frame, selected: usize, has_autosave: bool) {
         .iter()
         .enumerate()
         .map(|(i, (label, enabled))| {
-            let prefix = if i == selected { " > " } else { "   " };
-            let color = if !enabled {
-                Color::DarkGray
-            } else if i == selected {
-                Color::Green
+            let (prefix, suffix) = if i == selected {
+                (" \u{25B8} ", " \u{25C2}")
             } else {
-                Color::Gray
+                ("   ", "  ")
             };
-            Line::from(Span::styled(
-                format!("{}{}", prefix, label),
-                Style::default().fg(color),
-            ))
+            let color = if !enabled {
+                Color::Rgb(60, 60, 65)
+            } else if i == selected {
+                Color::Rgb(100, 220, 130)
+            } else {
+                Color::Rgb(140, 140, 135)
+            };
+            Line::from(vec![
+                Span::styled(prefix, Style::default().fg(color)),
+                Span::styled(*label, Style::default().fg(color)),
+                Span::styled(suffix, Style::default().fg(color)),
+            ])
         })
         .collect();
 
-    // Center the menu horizontally
-    let menu_area = centered_horizontal(30, chunks[3]);
-    let menu_widget = Paragraph::new(menu_lines);
+    let menu_area = centered_horizontal(30, chunks[5]);
+    let menu_widget = Paragraph::new(menu_lines)
+        .alignment(ratatui::layout::Alignment::Center);
     frame.render_widget(menu_widget, menu_area);
 
     // Footer
     let footer = Paragraph::new(Span::styled(
-        " Arrow keys to navigate  |  Enter to select",
-        Style::default().fg(Color::DarkGray),
+        " \u{2191}\u{2193} navigate  \u{23CE} select",
+        Style::default().fg(Color::Rgb(70, 70, 75)),
     ));
-    frame.render_widget(footer, chunks[5]);
+    frame.render_widget(footer, chunks[7]);
 }
 
 /// Draw the New World screen.
@@ -138,7 +166,7 @@ pub fn draw_new_world(
     // Title
     let title = Paragraph::new(Span::styled(
         "NEW WORLD",
-        Style::default().fg(Color::Green),
+        Style::default().fg(Color::Rgb(100, 220, 130)),
     ))
     .alignment(ratatui::layout::Alignment::Center);
     frame.render_widget(title, chunks[1]);
@@ -151,22 +179,22 @@ pub fn draw_new_world(
     let mut preset_lines: Vec<Line> = vec![
         Line::from(Span::styled(
             "Choose a flavor preset:",
-            Style::default().fg(Color::White),
+            Style::default().fg(Color::Rgb(180, 180, 175)),
         )),
         Line::from(""),
     ];
 
     for (i, (name, desc)) in FLAVOR_PRESETS.iter().enumerate() {
         let is_selected = !editing_seed && i == selected_preset;
-        let prefix = if is_selected { " > " } else { "   " };
-        let name_color = if is_selected { Color::Green } else { Color::Gray };
+        let prefix = if is_selected { " \u{25B8} " } else { "   " };
+        let name_color = if is_selected { Color::Rgb(100, 220, 130) } else { Color::Rgb(140, 140, 135) };
         preset_lines.push(Line::from(Span::styled(
             format!("{}{}", prefix, name),
             Style::default().fg(name_color),
         )));
         preset_lines.push(Line::from(Span::styled(
             format!("     {}", desc),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(Color::Rgb(90, 90, 85)),
         )));
     }
 
@@ -177,20 +205,20 @@ pub fn draw_new_world(
     let seed_area = centered_horizontal(content_width, chunks[5]);
     let cursor_char = if editing_seed { "_" } else { "" };
     let seed_border_color = if editing_seed {
-        Color::Yellow
+        Color::Rgb(200, 180, 80)
     } else {
-        Color::DarkGray
+        Color::Rgb(60, 60, 65)
     };
 
     let seed_lines = vec![
         Line::from(vec![
-            Span::styled(" Seed: ", Style::default().fg(Color::White)),
-            Span::styled(seed_input, Style::default().fg(Color::Yellow)),
-            Span::styled(cursor_char, Style::default().fg(Color::DarkGray)),
+            Span::styled(" Seed: ", Style::default().fg(Color::Rgb(180, 180, 175))),
+            Span::styled(seed_input, Style::default().fg(Color::Rgb(220, 200, 100))),
+            Span::styled(cursor_char, Style::default().fg(Color::Rgb(80, 80, 85))),
             if seed_input.is_empty() && editing_seed {
                 Span::styled(
                     " (blank = random)",
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(Color::Rgb(80, 80, 85)),
                 )
             } else {
                 Span::raw("")
@@ -206,13 +234,13 @@ pub fn draw_new_world(
 
     // Footer
     let footer_text = if editing_seed {
-        " Enter=generate  |  ESC=back"
+        " \u{23CE} generate  |  ESC back"
     } else {
-        " Up/Down=preset  Tab=seed  Enter=generate  ESC=cancel"
+        " \u{2191}\u{2193} preset  Tab seed  \u{23CE} generate  ESC cancel"
     };
     let footer = Paragraph::new(Span::styled(
         footer_text,
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(Color::Rgb(70, 70, 75)),
     ));
     frame.render_widget(footer, chunks[7]);
 }
@@ -287,7 +315,7 @@ pub fn draw_load_world(
 
     let title = Paragraph::new(Span::styled(
         "LOAD WORLD",
-        Style::default().fg(Color::Green),
+        Style::default().fg(Color::Rgb(100, 220, 130)),
     ))
     .alignment(ratatui::layout::Alignment::Center);
     frame.render_widget(title, chunks[1]);
@@ -429,12 +457,12 @@ pub fn draw_generating(frame: &mut Frame) {
     let msg = Paragraph::new(vec![
         Line::from(Span::styled(
             "Generating world...",
-            Style::default().fg(Color::Green),
+            Style::default().fg(Color::Rgb(100, 220, 130)),
         )),
         Line::from(""),
         Line::from(Span::styled(
             "A ledger is being prepared.",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(Color::Rgb(100, 100, 95)),
         )),
     ])
     .alignment(ratatui::layout::Alignment::Center);
