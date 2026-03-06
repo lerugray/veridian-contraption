@@ -60,6 +60,12 @@ pub struct Agent {
     pub chronicle: Vec<String>,
     /// Whether this agent is alive.
     pub alive: bool,
+    /// Accumulated epithets (most recent last).
+    #[serde(default)]
+    pub epithets: Vec<String>,
+    /// Tick when the last epithet was gained (prevents rapid accumulation).
+    #[serde(default)]
+    pub last_epithet_tick: u64,
 }
 
 impl Agent {
@@ -189,6 +195,15 @@ impl Agent {
             self.current_goal = Goal::Rest(rng.gen_range(5..=30));
         } else {
             self.current_goal = Goal::Wander;
+        }
+    }
+
+    /// Name with primary epithet for log entries and display.
+    pub fn display_name(&self) -> String {
+        if let Some(epithet) = self.epithets.last() {
+            format!("{} {}", self.name, epithet)
+        } else {
+            self.name.clone()
         }
     }
 }

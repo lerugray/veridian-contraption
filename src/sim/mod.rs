@@ -6,6 +6,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
+use crate::gen::name_gen;
 use crate::gen::prose_gen;
 use crate::sim::agent::Agent;
 use crate::sim::event::{Event, EventType};
@@ -180,7 +181,7 @@ impl SimState {
                     action.new_pos.1,
                     &self.world,
                 );
-                let agent_name = agent.name.clone();
+                let agent_name = agent.display_name();
 
                 let description = prose_gen::generate_description(
                     &action.event_type,
@@ -262,6 +263,34 @@ impl SimState {
                 location: None,
                 description,
             });
+        }
+
+        // Generate epithets for agents who had notable events this tick.
+        // Each agent can gain at most one epithet, and only if 50+ ticks since the last.
+        for event in &new_events {
+            if let Some(agent_id) = event.subject_id {
+                let min_gap: u64 = self.rng.gen_range(50..100);
+                let eligible = self.agents.iter().any(|a| {
+                    a.id == agent_id
+                        && a.alive
+                        && tick.saturating_sub(a.last_epithet_tick) >= min_gap
+                });
+
+                if eligible {
+                    let loc_name = event.location.map(|(x, y)| {
+                        prose_gen::nearest_settlement_name(x, y, &self.world)
+                    });
+                    let epithet = name_gen::generate_epithet(
+                        &event.event_type,
+                        loc_name.as_deref(),
+                        &mut self.rng,
+                    );
+                    if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id) {
+                        agent.epithets.push(epithet);
+                        agent.last_epithet_tick = tick;
+                    }
+                }
+            }
         }
 
         // Add new events to the log

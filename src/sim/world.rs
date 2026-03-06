@@ -73,6 +73,9 @@ pub struct People {
     pub name: String,
     pub preferred_terrain: Vec<Terrain>,
     pub population: u32,
+    /// Index into the phoneme data — determines naming conventions for this culture.
+    #[serde(default)]
+    pub phoneme_set: usize,
 }
 
 /// The complete world state.

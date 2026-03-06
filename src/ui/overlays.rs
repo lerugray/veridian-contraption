@@ -41,7 +41,7 @@ pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize)
 
     let mut lines: Vec<Line> = vec![
         Line::from(Span::styled(
-            format!(" {} ", agent.name),
+            format!(" {} ", agent.display_name()),
             Style::default().fg(Color::White),
         )),
         Line::from(""),
@@ -70,6 +70,22 @@ pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize)
             Span::styled(&goal_str, Style::default().fg(Color::Yellow)),
         ]),
         Line::from(""),
+    ];
+
+    // Epithets section (if any)
+    if !agent.epithets.is_empty() {
+        lines.push(Line::from(Span::styled(" EPITHETS", Style::default().fg(Color::White))));
+        for (i, ep) in agent.epithets.iter().rev().enumerate() {
+            let label = if i == 0 { "(current)" } else { "" };
+            lines.push(Line::from(Span::styled(
+                format!("  {} {}", ep, label),
+                Style::default().fg(if i == 0 { Color::Yellow } else { Color::DarkGray }),
+            )));
+        }
+    }
+
+    lines.extend(vec![
+        Line::from(""),
         Line::from(Span::styled(" DISPOSITION", Style::default().fg(Color::White))),
         Line::from(vec![
             Span::styled("  Risk tolerance:      ", Style::default().fg(Color::DarkGray)),
@@ -87,7 +103,7 @@ pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize)
             Span::styled("  Paranoia:            ", Style::default().fg(Color::DarkGray)),
             Span::styled(disposition_bar(agent.disposition.paranoia), Style::default().fg(Color::Gray)),
         ]),
-    ];
+    ]);
 
     // Chronicle section
     lines.push(Line::from(""));
