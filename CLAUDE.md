@@ -234,6 +234,15 @@ Clinical | Lyrical | Bureaucratic | Ominous | Conspiratorial
 
 ---
 
+## Known Issues
+
+**At the start of every session, check this list and flag any items to the player
+before proceeding with other work.**
+
+*(No known issues at this time.)*
+
+---
+
 ## Things That Have Not Worked (update as needed)
 
 *(Add entries here when approaches fail so future sessions don't repeat them)*

@@ -41,6 +41,10 @@ pub enum Goal {
     AdvanceInInstitution(u64),
     /// Founding a new institution (only high-ambition agents).
     FoundInstitution,
+    /// Heading toward a site to explore it (site index).
+    SeekSite(usize),
+    /// Currently inside a site, resting/exploring (site index, ticks remaining).
+    ExploreSite(usize, u32),
 }
 
 /// An action result returned from Agent::act() to be turned into events by the sim.
@@ -79,11 +83,13 @@ pub struct Agent {
 
 impl Agent {
     /// Take one action for this tick. Returns any notable events that occurred.
+    /// `site_positions` contains (grid_x, grid_y) for each site, indexed by site index.
     pub fn act(
         &mut self,
         rng: &mut StdRng,
         terrain: &[Vec<Terrain>],
         settlements: &[(u32, u32)],
+        site_positions: &[(u32, u32)],
     ) -> Vec<AgentAction> {
         if !self.alive {
             return Vec::new();
@@ -119,7 +125,7 @@ impl Agent {
         match &self.current_goal {
             Goal::Wander => {
                 self.wander(rng, terrain);
-                self.maybe_change_goal(rng, settlements);
+                self.maybe_change_goal(rng, settlements, site_positions);
             }
             Goal::SeekSettlement(idx) => {
                 let idx = *idx;
@@ -153,9 +159,43 @@ impl Agent {
                             new_pos: old_pos,
                         });
                     }
-                    self.maybe_change_goal(rng, settlements);
+                    self.maybe_change_goal(rng, settlements, site_positions);
                 } else {
                     self.current_goal = Goal::Rest(remaining - 1);
+                }
+            }
+            Goal::SeekSite(idx) => {
+                let idx = *idx;
+                if idx < site_positions.len() {
+                    let (sx, sy) = site_positions[idx];
+                    self.move_toward(sx, sy, terrain);
+                    // Arrived at site?
+                    if self.x == sx && self.y == sy && (old_pos.0 != sx || old_pos.1 != sy) {
+                        actions.push(AgentAction {
+                            agent_id: self.id,
+                            event_type: EventType::AgentEnteredSite,
+                            old_pos,
+                            new_pos: (self.x, self.y),
+                        });
+                        self.current_goal = Goal::ExploreSite(idx, rng.gen_range(20..=80));
+                    }
+                } else {
+                    self.current_goal = Goal::Wander;
+                }
+            }
+            Goal::ExploreSite(idx, remaining) => {
+                let idx = *idx;
+                let remaining = *remaining;
+                if remaining <= 1 {
+                    actions.push(AgentAction {
+                        agent_id: self.id,
+                        event_type: EventType::AgentLeftSite,
+                        old_pos,
+                        new_pos: old_pos,
+                    });
+                    self.maybe_change_goal(rng, settlements, site_positions);
+                } else {
+                    self.current_goal = Goal::ExploreSite(idx, remaining - 1);
                 }
             }
             // Institutional goals resolve in the sim tick loop, not here.
@@ -200,7 +240,7 @@ impl Agent {
     }
 
     /// Possibly switch to a new goal based on disposition weights.
-    pub fn maybe_change_goal(&mut self, rng: &mut StdRng, settlements: &[(u32, u32)]) {
+    pub fn maybe_change_goal(&mut self, rng: &mut StdRng, settlements: &[(u32, u32)], site_positions: &[(u32, u32)]) {
         let roll: f32 = rng.gen();
 
         // High-ambition agents with no institution may try to found one
@@ -219,6 +259,16 @@ impl Agent {
         {
             let inst_id = self.institution_ids[rng.gen_range(0..self.institution_ids.len())];
             self.current_goal = Goal::AdvanceInInstitution(inst_id);
+            return;
+        }
+
+        // Risk-tolerant agents may seek out a site to explore
+        if !site_positions.is_empty()
+            && self.disposition.risk_tolerance > 0.4
+            && roll < self.disposition.risk_tolerance * 0.12
+        {
+            let idx = rng.gen_range(0..site_positions.len());
+            self.current_goal = Goal::SeekSite(idx);
             return;
         }
 

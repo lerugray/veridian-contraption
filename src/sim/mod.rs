@@ -219,27 +219,52 @@ impl SimState {
             .map(|s| (s.x as u32, s.y as u32))
             .collect();
 
+        // Build site positions for agent site-seeking.
+        let site_positions: Vec<(u32, u32)> = self
+            .sites
+            .iter()
+            .map(|s| (s.grid_x, s.grid_y))
+            .collect();
+
         // Process all agent actions and collect resulting events.
         let mut new_events: Vec<Event> = Vec::new();
 
         for agent in &mut self.agents {
-            let actions = agent.act(&mut self.rng, &self.world.terrain, &settlement_positions);
+            let actions = agent.act(&mut self.rng, &self.world.terrain, &settlement_positions, &site_positions);
 
             for action in actions {
-                let loc_name = prose_gen::nearest_settlement_name(
-                    action.new_pos.0,
-                    action.new_pos.1,
-                    &self.world,
-                );
                 let agent_name = agent.display_name();
 
-                let description = prose_gen::generate_description(
-                    &action.event_type,
-                    Some(&agent_name),
-                    Some(&loc_name),
-                    tick,
-                    &mut self.rng,
-                );
+                // For site events, use the site name instead of nearest settlement
+                let description = match &action.event_type {
+                    EventType::AgentEnteredSite | EventType::AgentLeftSite => {
+                        // Find which site is at this position
+                        let site_name = self.sites.iter()
+                            .find(|s| s.grid_x == action.new_pos.0 && s.grid_y == action.new_pos.1)
+                            .map(|s| s.name.as_str())
+                            .unwrap_or("an unnamed site");
+                        prose_gen::generate_site_description(
+                            &action.event_type,
+                            &agent_name,
+                            site_name,
+                            &mut self.rng,
+                        )
+                    }
+                    _ => {
+                        let loc_name = prose_gen::nearest_settlement_name(
+                            action.new_pos.0,
+                            action.new_pos.1,
+                            &self.world,
+                        );
+                        prose_gen::generate_description(
+                            &action.event_type,
+                            Some(&agent_name),
+                            Some(&loc_name),
+                            tick,
+                            &mut self.rng,
+                        )
+                    }
+                };
 
                 new_events.push(Event {
                     tick,
@@ -248,6 +273,20 @@ impl SimState {
                     location: Some(action.new_pos),
                     description,
                 });
+            }
+        }
+
+        // Sync site populations from agent goals.
+        // Clear all site populations, then rebuild from agents currently exploring.
+        for site in &mut self.sites {
+            site.population.clear();
+        }
+        for agent in &self.agents {
+            if !agent.alive { continue; }
+            if let agent::Goal::ExploreSite(site_idx, _) = &agent.current_goal {
+                if *site_idx < self.sites.len() {
+                    self.sites[*site_idx].population.push(agent.id);
+                }
             }
         }
 

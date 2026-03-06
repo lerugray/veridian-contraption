@@ -25,6 +25,9 @@ pub enum EventType {
     MemberJoined,
     MemberDeparted,
     MemberExpelled,
+    // Site events
+    AgentEnteredSite,
+    AgentLeftSite,
 }
 
 impl EventType {
@@ -56,6 +59,10 @@ impl EventType {
             EventType::WeatherEvent
             | EventType::SettlementGrew
             | EventType::SettlementShrank => Color::Green,
+
+            // Site events — red (matches dungeon map color)
+            EventType::AgentEnteredSite
+            | EventType::AgentLeftSite => Color::Red,
 
             // Cosmological / world-level — magenta
             EventType::WorldGenesis

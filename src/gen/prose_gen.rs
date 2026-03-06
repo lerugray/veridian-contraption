@@ -178,6 +178,11 @@ pub fn generate_description(
             }
         }
 
+        // Site events use generate_site_description
+        EventType::AgentEnteredSite | EventType::AgentLeftSite => {
+            format!("{} had business at a site near {}.", name, loc)
+        }
+
         // Institutional events use generate_institutional_description
         EventType::InstitutionFounded
         | EventType::InstitutionDissolved
@@ -298,6 +303,40 @@ pub fn generate_institutional_description(
             }
         }
         _ => format!("An institutional matter involving {} was resolved, or at least {}.", inst, pick(PROCEDURAL_VERBS, rng)),
+    }
+}
+
+/// Generate prose for site entry/exit events.
+pub fn generate_site_description(
+    event_type: &EventType,
+    agent_name: &str,
+    site_name: &str,
+    rng: &mut StdRng,
+) -> String {
+    match event_type {
+        EventType::AgentEnteredSite => {
+            match rng.gen_range(0..7) {
+                0 => format!("{} entered {}, having filed no advance notice with the relevant authorities. The {} at the threshold was {}.", agent_name, site_name, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                1 => format!("{} descended into {}. A {} was opened to document the incursion, though no one expected it to be read.", agent_name, site_name, pick(BUREAUCRATIC_NOUNS, rng)),
+                2 => format!("{} crossed the boundary of {} with the conviction of someone who has not read the warnings. The warnings were extensive.", agent_name, site_name),
+                3 => format!("The records of {} now include the arrival of {}, who entered citing {}.", site_name, agent_name, pick(ABSURDIST_CAUSES, rng)),
+                4 => format!("{} ventured into {}, a decision the local {} {} as 'inadvisable but not explicitly prohibited.'", agent_name, site_name, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                5 => format!("{} was observed entering {}. The observation was {} but not acted upon {}.", agent_name, site_name, pick(PROCEDURAL_VERBS, rng), pick(TEMPORAL_HEDGES, rng)),
+                _ => format!("{} proceeded into {} despite the condition of the masonry. A {} was {} to mark the occasion.", agent_name, site_name, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+            }
+        }
+        EventType::AgentLeftSite => {
+            match rng.gen_range(0..7) {
+                0 => format!("{} emerged from {} bearing an expression the local clerk declined to categorize. The exit {} was completed {}.", agent_name, site_name, pick(BUREAUCRATIC_NOUNS, rng), pick(TEMPORAL_HEDGES, rng)),
+                1 => format!("{} departed {}, offering no account of what transpired within. The {} was {} accordingly.", agent_name, site_name, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                2 => format!("The departure of {} from {} was recorded in the margins of an unrelated {}. No further details were provided.", agent_name, site_name, pick(BUREAUCRATIC_NOUNS, rng)),
+                3 => format!("{} left {} under circumstances the administration classified as 'concluded.' Whether anything was accomplished remains {}.", agent_name, site_name, pick(TEMPORAL_HEDGES, rng)),
+                4 => format!("{} resurfaced from {} with documentation of uncertain provenance. The {} was {} without enthusiasm.", agent_name, site_name, pick(BUREAUCRATIC_NOUNS, rng), pick(PROCEDURAL_VERBS, rng)),
+                5 => format!("{} exited {}, having spent a period within that the records describe as 'of indeterminate purpose.' A {} was filed.", agent_name, site_name, pick(BUREAUCRATIC_NOUNS, rng)),
+                _ => format!("{} was no longer present in {} as of the latest inspection. The exit was attributed to {}.", agent_name, site_name, pick(ABSURDIST_CAUSES, rng)),
+            }
+        }
+        _ => format!("{} had dealings with {}. The nature of these dealings was not recorded.", agent_name, site_name),
     }
 }
 

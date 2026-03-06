@@ -43,6 +43,20 @@ pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize)
             format!("Advancing in {}", name)
         }
         Goal::FoundInstitution => "Planning to found an institution".to_string(),
+        Goal::SeekSite(idx) => {
+            if *idx < sim.sites.len() {
+                format!("Heading to {}", sim.sites[*idx].name)
+            } else {
+                "Seeking site (unknown)".to_string()
+            }
+        }
+        Goal::ExploreSite(idx, ticks) => {
+            if *idx < sim.sites.len() {
+                format!("Exploring {} ({} ticks remaining)", sim.sites[*idx].name, ticks)
+            } else {
+                format!("Exploring site ({} ticks remaining)", ticks)
+            }
+        }
     };
 
     let alive_str = if agent.alive { "Alive" } else { "Deceased" };
