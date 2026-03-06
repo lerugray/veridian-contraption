@@ -1,52 +1,49 @@
 # SESSION NOTES — Last updated: 2026-03-06
 
 ## Current State
-- Phase: Phase 4 COMPLETE (4-A + 4-B + 4-C all done)
-- Last working feature: Full multi-world session management
+- Phase: Phase 5 IN PROGRESS (5-A complete)
+- Last working feature: Expanded prose generation system with register-sensitive templates
 - Build status: Compiles and runs cleanly (6 warnings, all pre-existing dead_code)
 
 ## What's Working
-- **NEW: Multi-World Session Management (Phase 4-C)**
-  - **Enriched Load World screen:** Each save shows world name, save name, tick, population, era name, era count. Most recent save highlighted with ★. Autosaves labeled [AUTO].
-  - **Delete saves:** D key or Delete key on Load World screen triggers delete with Y/N confirmation. Border turns red during confirmation.
-  - **Save slot limit:** Up to 10 named saves (excluding autosave). Attempting New World at 10 slots shows "SAVE SLOTS FULL" screen directing player to delete from Load World.
-  - **Silent re-save (Ctrl+S):** If world already has a save name, saves silently without prompting. First save still prompts for a name.
-  - **Save As (Ctrl+Shift+S):** Always opens the name prompt, even if world already has a name.
-  - **Continue loads most recent:** Main menu "Continue" now loads the most recently modified save (any type, not just autosave). Uses `most_recent_save()` which sorts all saves by modification time.
-  - **Save metadata reading:** `list_saves()` reads world name, tick, population, era from inside each save file without full deserialization (lightweight `SaveMetadata` struct).
-  - `named_save_count()` counts non-autosave saves for slot limit checking.
-  - `delete_save()` removes a save file.
-  - `most_recent_save()` returns the most recently modified save.
-  - Removed unused `has_autosave()` — replaced by `most_recent_save().is_some()`.
-  - Help screen updated with Ctrl+Shift+S keybinding.
+- **NEW: Prose Expansion (Phase 5-A)**
+  - **10 template variants per event type** (up from 5-7), all register-sensitive
+  - **5 register-specific word pools**: Bureaucratic, Clinical, Lyrical, Ominous, Conspiratorial — each with ~15 verbs and ~15 nouns
+  - **Subordinate clause system**: ~30% of sentences get a qualifying clause, drawn from register-specific pools (14 bureaucratic, 10 each for other registers)
+  - **Event subordinate clauses**: situation-level clauses (not agent-specific) for variety
+  - **Weirdness-scaled cause system**: mundane (low) → absurdist (medium) → impossible (high). 18 absurdist causes, 12 impossible causes reported as mundane fact
+  - **Impossible institution names**: 30 Kafkaesque names at high weirdness ("The Bureau of Determining What Is and Is Not a Bureau", "The Guild of Procedures That Reference Themselves")
+  - **Oxymoronic epithets**: 18 formally contradictory epithets at high weirdness ("the Provisionally Permanent", "the Officially Unofficial")
+  - **All prose functions now register/weirdness-aware**: generate_institutional_description, generate_site_description, generate_artifact_event, generate_adventurer_death all take register + weirdness params
+  - **lib.rs added** for example binary support
+  - **examples/prose_samples.rs**: generates 20+ sample entries for prose review
 
-- **EXISTING: World Annals System (Phase 4-B)** — fully working
-- **EXISTING: Parametric World Generation (Phase 4-A)** — fully working
-- **EXISTING: Save/Load System** — enhanced in 4-C
+- **EXISTING: All Phase 1-4 systems** — fully working
 
 ## Decisions Made
-- Save list sorted by modification time (most recent first) rather than alphabetical
-- Most recent save gets ★ indicator for visibility
-- Delete confirmation is inline (Y/N on the selected save's row) rather than a separate overlay
-- `SaveMetadata` is a lightweight deserialization struct to avoid loading full SimState just to list saves
-- `has_autosave` removed since `most_recent_save().is_some()` is a strict superset
-- Autosave not counted toward the 10-slot limit (it's a separate system)
-- Ctrl+S behavior: silent if named, prompt if unnamed. Ctrl+Shift+S always prompts.
+- All verb pools use single-word past-tense forms only (no multi-word phrases) to ensure grammatical compatibility with passive constructions ("was X", "the Y was X")
+- All noun pools avoid vowel-initial words to prevent "a/an" article mismatches in templates
+- Subordinate clauses are register-specific (bureaucratic clauses differ from ominous ones)
+- Impossible causes only appear at weirdness > 0.8 (40% chance); absurdist causes appear at weirdness > 0.4
+- Impossible institution names appear at weirdness > 0.7 (35% chance)
+- Oxymoronic epithets appear at weirdness > 0.65 (25% chance)
+- `generate_epithet` wrapper removed; callers use `generate_epithet_with_weirdness` directly
+- `generate_institution_name` wrapper preserved for backward compat; new code uses `_with_weirdness` variant
 
 ## Known Issues
-- Room purposes not yet referenced in prose generation
+- Room purposes not yet referenced in prose generation (deferred from Phase 3)
 - 6 compiler warnings (pre-existing, all dead_code)
-- Phase 3 polish items deferred (room purposes in prose, more artifact interactions)
+- Some lyrical nouns ("tide", "remnant") read slightly oddly when used as bureaucratic objects in shared templates — acceptable given the register is meant to color the prose strangely
 
 ## Next Steps
-- Phase 5: Polish, depth, and voice
+- Phase 5-B: Color/symbol tuning (Brogue-quality ASCII expressiveness), full export system
+- Phase 5-C: Nested clause generation for complex events, narrative register variation per world parameter
 
 ## Notes for Next Claude
 - Player is not a programmer — explain decisions briefly, don't ask them to edit code
-- SaveFileInfo now has many more fields: world_name, tick, population, era_name, era_count, is_autosave, modified_secs
-- draw_load_world() takes a 4th param `confirm_delete: bool`
-- AppMode::LoadWorld now has `confirm_delete: bool` field
-- AppMode::SavesFull is a new mode shown when 10 save slots are full
-- export::MAX_SAVE_SLOTS = 10
-- export::most_recent_save() replaces has_autosave() for "Continue" button availability
+- prose_gen.rs is now ~1050 lines — the main prose engine. All generation flows through register-specific helper functions (gen_agent_died, gen_inst_founded, etc.)
+- All prose functions that previously took only `rng` now also take `register: NarrativeRegister` and `weirdness: f32` as the last two params
+- name_gen.rs has `generate_institution_name_with_weirdness()` and `generate_epithet_with_weirdness()` — these are the primary public APIs now
+- lib.rs exists to support examples/ — it re-exports all modules
+- Run `cargo run --example prose_samples` to preview prose output
 - SESSION_NOTES.md should be fully rewritten each update, not appended to

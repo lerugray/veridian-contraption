@@ -149,6 +149,23 @@ pub fn generate_institution_name(
     phoneme_set: usize,
     rng: &mut StdRng,
 ) -> String {
+    generate_institution_name_with_weirdness(kind, phonemes, phoneme_set, 0.5, rng)
+}
+
+/// Generate an institution name with weirdness coefficient influencing absurdity.
+/// High weirdness produces names that suggest impossible functions.
+pub fn generate_institution_name_with_weirdness(
+    kind: &InstitutionKind,
+    phonemes: &[PhonemeSet],
+    phoneme_set: usize,
+    weirdness: f32,
+    rng: &mut StdRng,
+) -> String {
+    // At high weirdness, chance of an impossible-function name
+    if weirdness > 0.7 && rng.gen_bool(0.35) {
+        return generate_impossible_institution_name(kind, phonemes, phoneme_set, rng);
+    }
+
     let prefix = match kind {
         InstitutionKind::Guild => pick(
             &["The Guild of", "The Confraternity of the", "The Society of", "The Fellowship of"],
@@ -201,6 +218,71 @@ pub fn generate_institution_name(
         0 => format!("{} {} {}", prefix, adj, noun),
         1 => format!("{} {} {} of {}", prefix, adj, noun, cultural_word),
         _ => format!("{} {}", prefix, cultural_word),
+    }
+}
+
+/// Generate institution names that suggest impossible functions.
+/// These are Kafkaesque: the impossibility is presented as mundane.
+fn generate_impossible_institution_name(
+    kind: &InstitutionKind,
+    phonemes: &[PhonemeSet],
+    phoneme_set: usize,
+    rng: &mut StdRng,
+) -> String {
+    let set = &phonemes[phoneme_set % phonemes.len()];
+    let cultural_word = generate_name_part(set, 1, 2, rng);
+
+    let impossible_names: &[&str] = match kind {
+        InstitutionKind::Guild => &[
+            "The Guild of Retroactive Carpentry",
+            "The Confraternity of the Already Concluded",
+            "The Society for the Regulation of Things That Have Not Yet Occurred",
+            "The Fellowship of Anticipated Regret",
+            "The Guild of Procedures That Reference Themselves",
+        ],
+        InstitutionKind::Government => &[
+            "The Bureau of Retroactive Nomenclature",
+            "The Office of Locations That Have Since Moved",
+            "The Ministry of the Previous Administration's Oversight",
+            "The Department of Answering Questions with Questions",
+            "The Bureau of Determining What Is and Is Not a Bureau",
+        ],
+        InstitutionKind::Cult => &[
+            "The Order of the Unforthcoming Revelation",
+            "The Congregation of What Was Meant to Happen Next",
+            "The Synod of the Doctrine That Precedes Itself",
+            "The Temple of the Conclusion That Was Always There",
+            "The Order of Events That Occurred in the Wrong Sequence",
+        ],
+        InstitutionKind::MercenaryCompany => &[
+            "The Company of the Preemptive Surrender",
+            "The Legion of Those Who Arrived After",
+            "The Guard of the Door That Doesn't Exist",
+            "The Defenders of the Indefensible (Administrative Division)",
+            "The Company of Contractual Obligations to No One in Particular",
+        ],
+        InstitutionKind::RegulatoryBody => &[
+            "The Commission on Determining What Commissions Are",
+            "The Board of Reviewing the Board's Previous Reviews",
+            "The Registry of Things the Registry Has Declined to Register",
+            "The Bureau of Provisional Finality",
+            "The Commission for the Oversight of Oversight",
+        ],
+        InstitutionKind::SecretSociety => &[
+            "The Lodge of Those Who Know What the Lodge Is For",
+            "The Fellowship of the Secret That Turned Out to Be Procedural",
+            "The Circle of Knowing Glances and Uncomfortable Silences",
+            "The Hidden Order of the Openly Known",
+            "The Society for the Preservation of What Cannot Be Named",
+        ],
+    };
+
+    let base = pick(impossible_names, rng);
+    // Sometimes append cultural name
+    if rng.gen_bool(0.3) {
+        format!("{} of {}", base, cultural_word)
+    } else {
+        base.to_string()
     }
 }
 
@@ -334,12 +416,37 @@ pub fn generate_doctrines(kind: &InstitutionKind, rng: &mut StdRng) -> Vec<Strin
 // Epithet system
 // ---------------------------------------------------------------------------
 
-/// Generate an epithet based on a triggering event type and location.
-pub fn generate_epithet(
+/// Generate an epithet with weirdness-influenced oxymoronic variants.
+pub fn generate_epithet_with_weirdness(
     event_type: &EventType,
     location_name: Option<&str>,
+    weirdness: f32,
     rng: &mut StdRng,
 ) -> String {
+    // High weirdness: chance of an oxymoronic epithet
+    if weirdness > 0.65 && rng.gen_bool(0.25) {
+        return pick(&[
+            "the Provisionally Permanent",
+            "the Accurately Mistaken",
+            "the Officially Unofficial",
+            "the Reliably Absent",
+            "the Conspicuously Unnoticed",
+            "the Voluntarily Compelled",
+            "the Precisely Approximate",
+            "the Famously Anonymous",
+            "the Thoroughly Superficial",
+            "the Deliberately Accidental",
+            "the Publicly Confidential",
+            "the Recently Eternal",
+            "the Formally Informal",
+            "the Predictably Unprecedented",
+            "the Conclusively Inconclusive",
+            "the Locally Everywhere",
+            "the Temporarily Permanent",
+            "the Enthusiastically Indifferent",
+        ], rng).to_string();
+    }
+
     let loc = location_name.unwrap_or("the Unregistered Reaches");
 
     match event_type {

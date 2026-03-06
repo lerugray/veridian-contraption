@@ -326,6 +326,8 @@ impl SimState {
                             &agent_name,
                             site_name,
                             &mut self.rng,
+                            self.world.params.narrative_register,
+                            self.world.params.weirdness_coefficient,
                         )
                     }
                     _ => {
@@ -464,9 +466,10 @@ impl SimState {
                     let loc_name = event.location.map(|(x, y)| {
                         prose_gen::nearest_settlement_name(x, y, &self.world)
                     });
-                    let epithet = name_gen::generate_epithet(
+                    let epithet = name_gen::generate_epithet_with_weirdness(
                         &event.event_type,
                         loc_name.as_deref(),
+                        self.world.params.weirdness_coefficient,
                         &mut self.rng,
                     );
                     if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id) {
@@ -684,7 +687,7 @@ impl SimState {
                     _ => institution::InstitutionKind::SecretSociety,
                 };
 
-                let inst_name = name_gen::generate_institution_name(&kind, &phonemes, people_id, &mut self.rng);
+                let inst_name = name_gen::generate_institution_name_with_weirdness(&kind, &phonemes, people_id, self.world.params.weirdness_coefficient, &mut self.rng);
                 let charter = name_gen::generate_charter(&kind, &mut self.rng);
                 let actual_function = name_gen::generate_actual_function(&kind, &mut self.rng);
                 let doctrine = name_gen::generate_doctrines(&kind, &mut self.rng);
@@ -725,6 +728,8 @@ impl SimState {
                     Some(&inst_name),
                     Some(&loc_name),
                     &mut self.rng,
+                    self.world.params.narrative_register,
+                    self.world.params.weirdness_coefficient,
                 );
                 events.push(Event {
                     tick,
@@ -761,6 +766,8 @@ impl SimState {
                             Some(&inst_name),
                             None,
                             &mut self.rng,
+                            self.world.params.narrative_register,
+                            self.world.params.weirdness_coefficient,
                         );
                         events.push(Event {
                             tick,
@@ -871,6 +878,8 @@ impl SimState {
                             Some(&inst_name),
                             None,
                             &mut self.rng,
+                            self.world.params.narrative_register,
+                            self.world.params.weirdness_coefficient,
                         ),
                     });
                 }
@@ -902,7 +911,7 @@ impl SimState {
             let remaining: Vec<u64> = inst.member_ids[split_count..].to_vec();
 
             let new_kind = inst.kind.clone();
-            let new_name = name_gen::generate_institution_name(&new_kind, phonemes, people_id, &mut self.rng);
+            let new_name = name_gen::generate_institution_name_with_weirdness(&new_kind, phonemes, people_id, self.world.params.weirdness_coefficient, &mut self.rng);
             let new_charter = name_gen::generate_charter(&new_kind, &mut self.rng);
             let new_doctrines = name_gen::generate_doctrines(&new_kind, &mut self.rng);
 
@@ -952,6 +961,8 @@ impl SimState {
                 Some(&inst_name),
                 None,
                 &mut self.rng,
+                self.world.params.narrative_register,
+                self.world.params.weirdness_coefficient,
             );
             return Some(Event {
                 tick,
@@ -979,6 +990,8 @@ impl SimState {
                     Some(&inst_name),
                     None,
                     &mut self.rng,
+                    self.world.params.narrative_register,
+                    self.world.params.weirdness_coefficient,
                 );
                 return Some(Event {
                     tick,
@@ -1056,6 +1069,8 @@ impl SimState {
             Some(&a_name),
             Some(&b_name),
             &mut self.rng,
+            self.world.params.narrative_register,
+            self.world.params.weirdness_coefficient,
         );
 
         Some(Event {
@@ -1115,6 +1130,8 @@ impl SimState {
             Some(&inst_name),
             None,
             &mut self.rng,
+            self.world.params.narrative_register,
+            self.world.params.weirdness_coefficient,
         );
 
         Some(Event {
@@ -1159,6 +1176,8 @@ impl SimState {
                         self.agents[ai].alive = false;
                         let description = prose_gen::generate_adventurer_death(
                             &agent_name, &site_name, &mut self.rng,
+                            self.world.params.narrative_register,
+                            self.world.params.weirdness_coefficient,
                         );
                         events.push(Event {
                             tick,
@@ -1220,6 +1239,8 @@ impl SimState {
                             &art_name,
                             &site_name,
                             &mut self.rng,
+                            self.world.params.narrative_register,
+                            self.world.params.weirdness_coefficient,
                         );
                         events.push(Event {
                             tick,
@@ -1272,6 +1293,8 @@ impl SimState {
                             &art_name,
                             &settlement_name,
                             &mut self.rng,
+                            self.world.params.narrative_register,
+                            self.world.params.weirdness_coefficient,
                         );
                         events.push(Event {
                             tick,
