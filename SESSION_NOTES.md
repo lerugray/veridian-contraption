@@ -1,59 +1,50 @@
 # SESSION NOTES — Last updated: 2026-03-06
 
 ## Current State
-- Phase: Phase 5 COMPLETE + post-phase polish (seasons, relationships, conversations, inspect fixes)
-- Last working feature: Agent conversation system
+- Phase: Phase 5 COMPLETE + post-phase polish (seasons, relationships, conversations, prose repetition fixes)
+- Last working feature: Prose repetition overhaul
 - Build status: Compiles and runs cleanly (5 warnings, all pre-existing dead_code)
-- Tests: All passing
 
 ## What We Did
-- Implemented a full agent conversation system with flavor and mechanical weight
+- Fixed prose repetition across several systems in prose_gen.rs and sim/mod.rs
 
-### Conversation System
-- **ConversationTone enum**: Warm, Tense, Cryptic, Mundane, Significant
-- **Conversation struct**: other_id, tick, line_a, line_b, tone — stored per agent
-- **Storage**: `conversations: Vec<Conversation>` on Agent, capped at 20 per agent, oldest dropped
-- **Generation**: `generate_conversation()` in prose_gen.rs — 10 templates per tone (50 total)
-  - Tone is deadpan bureaucratic throughout, matching the game's voice
-- **Trigger**: `process_conversation_tick()` runs every 30 ticks
-  - For each pair of agents sharing a tile, ~3% chance of a conversation
-  - Tone is weighted by existing relationship:
-    - Friends/Partners skew Warm (45%)
-    - Rivals skew Tense (50%)
-    - No relationship skews Mundane (40%) / Cryptic (30%)
-    - Mentors skew Warm (30%) / Significant (25%)
-- **Mechanical effects on relationships**:
-  - 4+ Warm conversations in last 10 → friendship formation probability +50% (1.5% → 2.25%)
-  - 4+ Tense conversations in last 10 → rivalry formation probability +50% (1% → 1.5%)
-  - 1+ Significant conversations → triggers notability (same as notable agents for log output)
-- **Inspect overlay**: CONVERSATIONS section between RELATIONSHIPS and ADVENTURER
-  - Shows last 6 conversations: tick, other agent name, both lines
-  - Tone colors: Warm=green, Tense=red, Cryptic=yellow, Mundane=grey, Significant=cyan
-  - Scrolls with rest of overlay
-- **Log events**: Only Significant-tone conversations involving notable agents (2+ institutions or epithets)
-  - Uses ConversationOccurred event type
-- **Save compat**: #[serde(default)] for conversations field, old saves load fine
+### Weather Templates
+- Removed the broken random-verb-substitution pattern ("several residents terminated/foreclosed the characterization")
+- Removed the overused "usual arrangement" template entirely
+- Expanded weather pool from 10 to 20 templates, all in the dry bureaucratic voice
+- Added near-duplicate suppression: `weather_template_history` HashMap on SimState tracks (template_index, tick) per settlement index; avoids repeating the same template within 50 ticks
+- New `gen_weather_indexed()` public function returns (u8, String) and accepts optional excluded index
+
+### Census Entries
+- Replaced the single hardcoded census template in mod.rs with a call to new `generate_census_with_count()` in prose_gen.rs
+- 5 rotating variants that include the actual population count, same dry register
+
+### Relationship Prose
+- Expanded friendship formation: 4→5 variants
+- Expanded rivalry formation: 4→5 variants
+- Expanded estrangement formation: 3→5 variants
+- Expanded estrangement (relationship changed): 3→5 variants
+- Expanded reconciliation (Friend from Rival): 1→4 variants
+- Added institutional context: `generate_relationship_event()` now accepts optional `inst_a` and `inst_b` institution names; templates reference institutions when available ("the former of X and the latter of Y")
+- Updated all 3 call sites in mod.rs to look up and pass institution names
+
+### Conversation Entries
+- Cryptic tier: 10→16 templates (6 new)
+- Significant tier: 10→16 templates (6 new)
+- "spoke for exactly seven minutes" moved from the default/fallback slot to one of 16 options (was template 9/10 odds, now 9/16)
 
 ## Files Modified This Session
-- src/sim/agent.rs — ConversationTone enum, Conversation struct, conversations field
-- src/sim/event.rs — ConversationOccurred event type, color/prefix matches
-- src/sim/mod.rs — process_conversation_tick(), pick_conversation_tone(), conversation influence on relationship formation
-- src/gen/prose_gen.rs — generate_conversation() with 50 templates, ConversationOccurred match arm
-- src/gen/world_gen.rs — conversations: Vec::new() in Agent initializers
-- src/gen/eschaton_gen.rs — conversations: Vec::new() in Agent initializers
-- src/ui/overlays.rs — CONVERSATIONS section in inspect overlay
+- src/gen/prose_gen.rs — weather templates expanded, gen_weather_indexed(), generate_census_with_count(), relationship prose expanded with institution params, conversation templates expanded
+- src/sim/mod.rs — HashMap import, weather_template_history field on SimState, weather suppression logic, census now uses generate_census_with_count(), relationship event calls pass institution names
 
 ## Decisions Made
-- Conversations stored per-agent (both sides get the same line_a/line_b)
-- Conversation tick runs every 30 ticks (offset from relationship tick at 20)
-- Tone weighting uses cumulative probability distribution
-- Cap at 20 conversations per agent keeps memory lightweight
-- Only 6 shown in overlay to avoid clutter
-- Significant conversations use the same notability check as relationships
+- Weather suppression uses a simple HashMap<usize, (u8, u64)> keyed by settlement index — lightweight, not saved (resets on load, which is fine)
+- gen_weather_indexed tries once to avoid the excluded template, falls back if it lands on the same one again (good enough, 1/20 chance of repeat vs 1/20 → ~1/400)
+- Relationship prose gets institution names via first institution_id lookup — simple and covers the most common case
 
 ## Known Issues
 - 5 compiler warnings (pre-existing, all dead_code)
-- Old saves work fine — conversations default to empty Vec
+- weather_template_history is not saved/loaded (intentional — transient suppression state)
 
 ## Next Steps
 - Further polish / new features as directed by player
@@ -66,3 +57,4 @@
 - Speed keybindings: 0/1/2/3 (not the old 1/5/2 scheme)
 - SESSION_NOTES.md should be fully rewritten each update, not appended to
 - Conversations are separate from relationships — they influence relationship formation but are tracked independently
+- generate_relationship_event now takes 2 extra params (inst_a, inst_b) at the end

@@ -529,24 +529,54 @@ fn gen_settlement_shrank(loc: &str, reg: NarrativeRegister, w: f32, rng: &mut St
 }
 
 fn gen_weather(loc: &str, reg: NarrativeRegister, w: f32, rng: &mut StdRng) -> String {
-    match rng.gen_range(0..10) {
+    gen_weather_indexed(loc, reg, w, rng, None).1
+}
+
+/// Generate weather prose, returning (template_index, text).
+/// If `exclude` is Some, avoids that template index (tries once, falls back if needed).
+pub fn gen_weather_indexed(loc: &str, reg: NarrativeRegister, w: f32, rng: &mut StdRng, exclude: Option<u8>) -> (u8, String) {
+    let mut idx = rng.gen_range(0..20u8);
+    if let Some(ex) = exclude {
+        // Try once to avoid the excluded index
+        if idx == ex {
+            idx = rng.gen_range(0..20u8);
+        }
+    }
+    let text = match idx {
         0 => format!("Conditions in the vicinity of {} became unseasonably damp. This was attributed to {}, which the Bureau of Ambient Conditions is still reviewing.", loc, pick_cause(w, rng)),
-        1 => format!("The weather near {} was classified by the meteorological office as 'within parameters,' though several residents {} the characterization.", loc, pick_verb(reg, rng)),
-        2 => format!("An amber haze settled over {}. The phenomenon was attributed to {} and logged under the existing {} for atmospheric irregularities.", loc, pick_cause(w, rng), pick_noun(reg, rng)),
-        3 => format!("{} experienced conditions that one official termed 'the usual arrangement.' A {} was opened {}, though expectations for its conclusion are modest.", loc, pick_noun(reg, rng), pick(TEMPORAL_HEDGES, rng)),
-        4 => format!("A persistent low wind in the vicinity of {} prompted the filing of a {} with the regional office. The {} was {} but not acted upon.", loc, pick_noun(reg, rng), pick_noun(reg, rng), pick_verb(reg, rng)),
-        5 => format!("The area surrounding {} was punctuated by brief intervals of something not quite rain. The cause was {} by the local office as 'atmospheric indifference.'", loc, pick_verb(reg, rng)),
-        6 => match reg {
+        1 => format!("An amber haze settled over {}. The phenomenon was attributed to {} and logged under the existing {} for atmospheric irregularities.", loc, pick_cause(w, rng), pick_noun(reg, rng)),
+        2 => format!("A persistent low wind in the vicinity of {} prompted the filing of a {} with the regional office. The {} was {} but not acted upon.", loc, pick_noun(reg, rng), pick_noun(reg, rng), pick_verb(reg, rng)),
+        3 => format!("The area surrounding {} was punctuated by brief intervals of something not quite rain. The cause was {} by the local office as 'atmospheric indifference.'", loc, pick_verb(reg, rng)),
+        4 => match reg {
             NarrativeRegister::Ominous => format!("The sky above {} changed. It did not change back.", loc),
             NarrativeRegister::Lyrical => format!("Weather visited {} in the manner of an old acquaintance — familiar, unwelcome, and impossible to turn away at the door.", loc),
             NarrativeRegister::Clinical => format!("Atmospheric event logged near {}: parameters deviated from seasonal norms by a measurable but non-critical margin. {} {}.", loc, pick_noun(reg, rng), pick_verb(reg, rng)),
             NarrativeRegister::Conspiratorial => format!("The weather in {} shifted in a way that would be unremarkable if it had not coincided precisely with {}. Draw your own conclusions.", loc, pick_cause(w, rng)),
             _ => format!("The meteorological {} of {} {} a disturbance that the office classified as 'atmospheric in nature,' a category that technically includes everything.", pick_noun(reg, rng), loc, pick_verb(reg, rng)),
         },
-        7 => format!("Conditions near {} became briefly extraordinary before returning to their customary mediocrity. The {} was {} accordingly.", loc, pick_noun(reg, rng), pick_verb(reg, rng)),
-        8 => format!("The climate in the region of {} expressed an opinion that the local {} classified as 'seasonal.' This categorization was not contested.", loc, pick_noun(reg, rng)),
-        _ => format!("Something fell from the sky near {}. Whether it was rain, ash, or the residue of {} was not determined before the {} was closed.", loc, pick_cause(w, rng), pick_noun(reg, rng)),
-    }
+        5 => format!("Conditions near {} became briefly extraordinary before returning to their customary mediocrity. The {} was {} accordingly.", loc, pick_noun(reg, rng), pick_verb(reg, rng)),
+        6 => format!("The climate in the region of {} expressed an opinion that the local {} classified as 'seasonal.' This categorization was not contested.", loc, pick_noun(reg, rng)),
+        7 => format!("Something fell from the sky near {}. Whether it was rain, ash, or the residue of {} was not determined before the {} was closed.", loc, pick_cause(w, rng), pick_noun(reg, rng)),
+        8 => format!("A warm front arrived at {} and was {} by the meteorological office with neither ceremony nor urgency.", loc, pick_verb(reg, rng)),
+        9 => format!("The air above {} thickened with a quality the Bureau described as 'atmospheric particulate of indeterminate origin.' Residents were advised to continue as normal.", loc),
+        10 => format!("A fog settled over {} with the unhurried confidence of a {} that has already been approved.", loc, pick_noun(reg, rng)),
+        11 => format!("The barometric pressure near {} shifted in a direction the instruments technically support but the forecasters did not anticipate. The {} was {} without correction.", loc, pick_noun(reg, rng), pick_verb(reg, rng)),
+        12 => format!("A dry spell in the region of {} prompted the Bureau of Ambient Conditions to issue a statement confirming that dryness was, in fact, occurring.", loc),
+        13 => format!("Winds near {} arrived from a quarter the cartographers had designated as 'unlikely.' The designation was not revised.", loc),
+        14 => format!("The temperature near {} deviated from the projected range by a margin the {} described as 'within the tolerance of the instruments, if not the inhabitants.'", loc, pick_noun(reg, rng)),
+        15 => format!("An overcast condition persisted above {} for long enough to acquire a reputation. The {} {} the condition without issuing a timeline for its resolution.", loc, pick_noun(reg, rng), pick_verb(reg, rng)),
+        16 => format!("Precipitation was observed in the vicinity of {}. The precipitation declined to be categorized and was logged under 'general atmospheric output.'", loc),
+        17 => format!("The sky above {} delivered a performance that the local office {} as 'meteorologically orthodox.' The residents were not consulted.", loc, pick_verb(reg, rng)),
+        18 => match reg {
+            NarrativeRegister::Ominous => format!("The air around {} grew heavy with something the instruments could not name. The {} made no attempt to.", loc, pick_noun(reg, rng)),
+            NarrativeRegister::Lyrical => format!("The weather above {} paused, as though reconsidering — then continued, having apparently decided that the original plan was adequate.", loc),
+            NarrativeRegister::Clinical => format!("Environmental sensor array near {}: humidity deviation noted. Magnitude: marginal. {} appended to seasonal {}.", loc, pick_noun(reg, rng), pick_noun(reg, rng)),
+            NarrativeRegister::Conspiratorial => format!("The atmospheric conditions near {} changed precisely when certain parties predicted they would. The prediction was not published.", loc),
+            _ => format!("The Bureau of Ambient Conditions issued a brief regarding {}: conditions were described as 'present,' which the office considers sufficient.", loc),
+        },
+        _ => format!("A shift in conditions near {} was noted by the local {} and attributed to causes the office classified as 'environmental in the broadest sense.'", loc, pick_noun(reg, rng)),
+    };
+    (idx, text)
 }
 
 fn gen_age_event(name: &str, loc: &str, reg: NarrativeRegister, w: f32, rng: &mut StdRng) -> String {
@@ -683,6 +713,21 @@ fn gen_census(loc: &str, reg: NarrativeRegister, w: f32, rng: &mut StdRng) -> St
         5 => format!("The regular enumeration of the population was carried out with the usual combination of thoroughness and futility."),
         6 => format!("A count was taken. The count was {}, and the results were stored alongside previous counts that no one has consulted since.", pick_verb(reg, rng)),
         _ => format!("The census office published its findings, which confirmed that people exist, that they can be counted, and that the count is subject to revision {}", pick(TEMPORAL_HEDGES, rng)),
+    }
+}
+
+/// Generate a census entry that includes the actual population count.
+pub fn generate_census_with_count(
+    count: usize,
+    rng: &mut StdRng,
+    register: NarrativeRegister,
+) -> String {
+    match rng.gen_range(0..5) {
+        0 => format!("The census records {} souls still accounted for. The registrar noted this figure without comment.", count),
+        1 => format!("The count stood at {}. The registrar initialed the margin and moved on.", count),
+        2 => format!("A population of {} was {} by the census office, a number it described as 'the current number.'", count, pick_verb(register, rng)),
+        3 => format!("The enumeration yielded {}: neither cause for celebration nor alarm, according to the {} responsible for such determinations.", count, pick_noun(register, rng)),
+        _ => format!("{} names occupied the register. The clerk who tallied them expressed neither satisfaction nor concern, only the faint fatigue of someone who has counted before.", count),
     }
 }
 
@@ -1349,6 +1394,7 @@ pub fn generate_seasonal_transition(
 }
 
 /// Generate prose for a relationship event (formation or change).
+/// `inst_a` and `inst_b` are optional institution names for each agent.
 pub fn generate_relationship_event(
     agent_name: &str,
     other_name: &str,
@@ -1357,21 +1403,41 @@ pub fn generate_relationship_event(
     rng: &mut StdRng,
     register: NarrativeRegister,
     _weirdness: f32,
+    inst_a: Option<&str>,
+    inst_b: Option<&str>,
 ) -> String {
     let verb = pick_verb(register, rng);
+    // Optional institutional context clause
+    let inst_clause = match (inst_a, inst_b) {
+        (Some(a), Some(b)) if a != b => Some(format!("the former of {} and the latter of {}", a, b)),
+        (Some(a), Some(b)) if a == b => Some(format!("both of {}", a)),
+        (Some(a), None) => Some(format!("of {}", a)),
+        (None, Some(b)) => Some(format!("the latter of {}", b)),
+        _ => None,
+    };
     if is_formation {
         match kind {
-            "Friend" => match rng.gen_range(0..4) {
+            "Friend" => match rng.gen_range(0..5) {
                 0 => format!("{} and {} have developed what the registry classifies as a mutual regard.", agent_name, other_name),
                 1 => format!("A friendship has been {} between {} and {}. The paperwork is pending.", verb, agent_name, other_name),
                 2 => format!("{} and {} have been observed in each other's company with increasing regularity. The registrar has made a note.", agent_name, other_name),
-                _ => format!("{} has formed an association with {} that the office has tentatively categorized as amicable.", agent_name, other_name),
+                3 => if let Some(ic) = &inst_clause {
+                    format!("{} and {}, {}, have formed an association the office classifies as amicable.", agent_name, other_name, ic)
+                } else {
+                    format!("{} has formed an association with {} that the office has tentatively categorized as amicable.", agent_name, other_name)
+                },
+                _ => format!("The {} between {} and {} has been upgraded from 'acquaintance' to 'friendship,' a reclassification the registrar performed with visible reluctance.", pick_noun(register, rng), agent_name, other_name),
             },
-            "Rival" => match rng.gen_range(0..4) {
+            "Rival" => match rng.gen_range(0..5) {
                 0 => format!("{} and {} have entered into a state of mutual professional antagonism.", agent_name, other_name),
                 1 => format!("A rivalry has been {} between {} and {}. Both parties deny it with equal conviction.", verb, agent_name, other_name),
                 2 => format!("{} has developed a pointed disagreement with {} that shows no sign of administrative resolution.", agent_name, other_name),
-                _ => format!("The records now reflect a formal rivalry between {} and {}. The causes are disputed.", agent_name, other_name),
+                3 => if let Some(ic) = &inst_clause {
+                    format!("A formal rivalry now exists between {} and {}, {}. The {} considers the matter ongoing.", agent_name, other_name, ic, pick_noun(register, rng))
+                } else {
+                    format!("The records now reflect a formal rivalry between {} and {}. The causes are disputed.", agent_name, other_name)
+                },
+                _ => format!("The antagonism between {} and {} has reached a threshold the office recognizes as 'rivalry.' Neither party was consulted about the designation.", agent_name, other_name),
             },
             "Partner" => match rng.gen_range(0..4) {
                 0 => format!("{} and {} have entered into a partnership of a personal nature. The registrar has updated the relevant forms.", agent_name, other_name),
@@ -1384,22 +1450,39 @@ pub fn generate_relationship_event(
                 1 => format!("A mentorship has been {} between {} and {}, the former instructing the latter in the customs of the office.", verb, agent_name, other_name),
                 _ => format!("{} has assumed the role of mentor to {}. The arrangement appears to be functional.", agent_name, other_name),
             },
-            "Estranged" => match rng.gen_range(0..3) {
+            "Estranged" => match rng.gen_range(0..5) {
                 0 => format!("The relationship between {} and {} has been {} as estranged. Both parties maintain separate filing systems.", agent_name, other_name, verb),
                 1 => format!("{} and {} have entered a period of mutual avoidance that the registrar has classified as indefinite.", agent_name, other_name),
-                _ => format!("The association between {} and {} has soured. The relevant documents have been archived.", agent_name, other_name),
+                2 => format!("The association between {} and {} has soured. The relevant documents have been archived.", agent_name, other_name),
+                3 => if let Some(ic) = &inst_clause {
+                    format!("{} and {}, {}, no longer acknowledge each other in the corridors. The {} has noted the change.", agent_name, other_name, ic, pick_noun(register, rng))
+                } else {
+                    format!("{} and {} have ceased all voluntary interaction. The registrar logged this with the efficiency of someone who has seen it before.", agent_name, other_name)
+                },
+                _ => format!("What existed between {} and {} has been reclassified from its previous heading to 'estranged,' a category the office maintains with quiet familiarity.", agent_name, other_name),
             },
             _ => format!("{} and {} have formed a relationship of uncertain classification.", agent_name, other_name),
         }
     } else {
         // Relationship changed
         match kind {
-            "Estranged" => match rng.gen_range(0..3) {
+            "Estranged" => match rng.gen_range(0..5) {
                 0 => format!("The bond between {} and {} has deteriorated beyond administrative repair.", agent_name, other_name),
                 1 => format!("{} and {} are now estranged. The records have been updated accordingly.", agent_name, other_name),
-                _ => format!("What was once a functional association between {} and {} has been reclassified as estranged.", agent_name, other_name),
+                2 => format!("What was once a functional association between {} and {} has been reclassified as estranged.", agent_name, other_name),
+                3 => format!("The {} between {} and {} has concluded. The {} was {} without sentiment.", pick_noun(register, rng), agent_name, other_name, pick_noun(register, rng), pick_verb(register, rng)),
+                _ => if let Some(ic) = &inst_clause {
+                    format!("{} and {}, {}, have severed their personal association. Institutional obligations remain unaffected, at least on paper.", agent_name, other_name, ic)
+                } else {
+                    format!("The estrangement of {} and {} was recorded in the margin of an unrelated {}. The clerk responsible offered no editorial.", agent_name, other_name, pick_noun(register, rng))
+                },
             },
-            "Friend" => format!("{} and {} have reconciled. The registrar has re-opened the relevant file.", agent_name, other_name),
+            "Friend" => match rng.gen_range(0..4) {
+                0 => format!("{} and {} have reconciled. The registrar has re-opened the relevant file.", agent_name, other_name),
+                1 => format!("The enmity between {} and {} has subsided into something the office has, after some deliberation, categorized as friendship.", agent_name, other_name),
+                2 => format!("{} and {} were seen speaking again. The registrar reclassified their association from 'hostile' to 'cordial,' a promotion of considerable administrative weight.", agent_name, other_name),
+                _ => format!("A reconciliation between {} and {} was {} by the relevant office. The file has been moved from the 'disputes' drawer to 'active associations.'", agent_name, other_name, pick_verb(register, rng)),
+            },
             _ => format!("The relationship between {} and {} has been reclassified. The paperwork is ongoing.", agent_name, other_name),
         }
     }
@@ -1540,7 +1623,7 @@ pub fn generate_conversation(
                 format!("{} received it with visible displeasure.", name_b),
             ),
         },
-        ConversationTone::Cryptic => match rng.gen_range(0..10) {
+        ConversationTone::Cryptic => match rng.gen_range(0..16) {
             0 => (
                 format!("{} told {} something that {} did not repeat.", name_b, name_a, name_a),
                 format!("{}'s route changed the following tick.", name_a),
@@ -1577,12 +1660,36 @@ pub fn generate_conversation(
                 format!("{} said a single word to {}.", name_a, name_b),
                 format!("{} appeared to understand it. The word was not recorded.", name_b),
             ),
-            _ => (
+            9 => (
                 format!("{} left something on {}'s desk.", name_a, name_b),
                 format!("{} removed it before the registrar could note what it was.", name_b),
             ),
+            10 => (
+                format!("{} gestured toward a point on the horizon that {} seemed to recognize.", name_a, name_b),
+                "Neither spoke further. The gesture was not described in any subsequent filing.".to_string(),
+            ),
+            11 => (
+                format!("{} slid a sealed envelope across the table to {}.", name_a, name_b),
+                format!("{} pocketed it without breaking eye contact. The seal was not official.", name_b),
+            ),
+            12 => (
+                format!("{} recited a number to {}.", name_a, name_b),
+                format!("{} wrote it down and then ate the paper.", name_b),
+            ),
+            13 => (
+                format!("{} and {} were seen standing in silence for an interval the registrar timed at four minutes.", name_a, name_b),
+                "When asked about it afterward, both denied the meeting had occurred.".to_string(),
+            ),
+            14 => (
+                format!("{} traced a route on a map that {} studied closely.", name_a, name_b),
+                "The map was returned to the cartographic office with the route erased. The erasure was imperfect.".to_string(),
+            ),
+            _ => (
+                format!("{} mentioned a name to {} that does not appear in any active census.", name_a, name_b),
+                format!("{} reacted as though it did.", name_b),
+            ),
         },
-        ConversationTone::Significant => match rng.gen_range(0..10) {
+        ConversationTone::Significant => match rng.gen_range(0..16) {
             0 => (
                 format!("{} informed {} of a development.", name_a, name_b),
                 format!("{} later described it as 'foreseeable in retrospect.'", name_b),
@@ -1619,9 +1726,33 @@ pub fn generate_conversation(
                 format!("{} made an offer to {} that carried implications beyond its terms.", name_a, name_b),
                 format!("{} accepted. The implications were left unspoken.", name_b),
             ),
-            _ => (
+            9 => (
                 format!("{} and {} spoke for exactly seven minutes.", name_a, name_b),
                 "The registrar noted that both left in different directions than they had arrived.".to_string(),
+            ),
+            10 => (
+                format!("{} asked {} a question that caused {} to sit down.", name_a, name_b, name_b),
+                "The answer, when it came, was brief. Its consequences were not.".to_string(),
+            ),
+            11 => (
+                format!("{} named a figure to {} that altered the tenor of the conversation.", name_a, name_b),
+                format!("{} asked it to be repeated. It was. The silence that followed was substantive.", name_b),
+            ),
+            12 => (
+                format!("{} and {} met at a time neither had publicly scheduled.", name_a, name_b),
+                "What was decided is not recorded, but subsequent events suggest it was decided firmly.".to_string(),
+            ),
+            13 => (
+                format!("{} disclosed to {} a fact the registrar had classified as 'unlikely.'", name_a, name_b),
+                format!("{} did not dispute it. The classification was revised.", name_b),
+            ),
+            14 => (
+                format!("{} spoke to {} with the measured urgency of someone delivering a warning.", name_a, name_b),
+                format!("{} listened without interrupting, which was itself unusual.", name_b),
+            ),
+            _ => (
+                format!("{} and {} exchanged commitments of an unspecified but apparently binding nature.", name_a, name_b),
+                "The registrar recorded the meeting's duration but not its substance, having been asked to step outside.".to_string(),
             ),
         },
     }

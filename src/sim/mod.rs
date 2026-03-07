@@ -6,6 +6,7 @@ pub mod site;
 pub mod artifact;
 pub mod eschaton;
 
+use std::collections::HashMap;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
@@ -226,6 +227,8 @@ pub struct SimState {
     pub pre_overlay: Option<Box<Overlay>>,
     /// The season at the end of the previous tick (for detecting transitions).
     pub last_season: Season,
+    /// Per-settlement weather template suppression: maps settlement index -> (last_template_id, tick).
+    weather_template_history: HashMap<usize, (u8, u64)>,
 }
 
 impl SimState {
@@ -274,6 +277,7 @@ impl SimState {
             next_agent_id,
             pre_overlay: None,
             last_season: Season::Spring,
+            weather_template_history: HashMap::new(),
         }
     }
 
@@ -346,6 +350,7 @@ impl SimState {
             next_agent_id,
             pre_overlay: None,
             last_season: loaded_season,
+            weather_template_history: HashMap::new(),
         }
     }
 
@@ -550,23 +555,26 @@ impl SimState {
         // Weather events — interval scaled by temporal_rate and ecological_volatility
         let weather_interval = (50.0 / (self.world.params.temporal_rate * (0.5 + self.world.params.ecological_volatility))).max(5.0) as u64;
         if tick % weather_interval == 0 && !self.world.settlements.is_empty() {
-            let idx = self.rng.gen_range(0..self.world.settlements.len());
-            let s = &self.world.settlements[idx];
+            let sidx = self.rng.gen_range(0..self.world.settlements.len());
+            let s = &self.world.settlements[sidx];
             let loc_name = s.name.clone();
-            let description = prose_gen::generate_description(
-                &EventType::WeatherEvent,
-                None,
-                Some(&loc_name),
-                tick,
-                &mut self.rng,
+            let loc_xy = (s.x as u32, s.y as u32);
+            // Near-duplicate suppression: avoid repeating the same template within 50 ticks
+            let exclude = self.weather_template_history.get(&sidx)
+                .and_then(|(tmpl, last_tick)| if tick.saturating_sub(*last_tick) < 50 { Some(*tmpl) } else { None });
+            let (tmpl_idx, description) = prose_gen::gen_weather_indexed(
+                &loc_name,
                 self.world.params.narrative_register,
                 self.world.params.weirdness_coefficient,
+                &mut self.rng,
+                exclude,
             );
+            self.weather_template_history.insert(sidx, (tmpl_idx, tick));
             new_events.push(Event {
                 tick,
                 event_type: EventType::WeatherEvent,
                 subject_id: None,
-                location: Some((s.x as u32, s.y as u32)),
+                location: Some(loc_xy),
                 description,
             });
         }
@@ -605,9 +613,10 @@ impl SimState {
         let census_interval = (100.0 / self.world.params.temporal_rate).max(10.0) as u64;
         if tick % census_interval == 0 {
             let alive_count = self.agents.iter().filter(|a| a.alive).count();
-            let description = format!(
-                "The census records {} souls still accounted for. The registrar noted this figure without comment.",
-                alive_count
+            let description = prose_gen::generate_census_with_count(
+                alive_count,
+                &mut self.rng,
+                self.world.params.narrative_register,
             );
             new_events.push(Event {
                 tick,
@@ -1807,9 +1816,16 @@ impl SimState {
                 || self.agents[bi].epithets.len() >= 2
                 || significant_count >= 1;
             if notable {
+                let inst_a = self.agents[ai].institution_ids.first()
+                    .and_then(|id| self.institutions.iter().find(|i| i.id == *id))
+                    .map(|i| i.name.clone());
+                let inst_b = self.agents[bi].institution_ids.first()
+                    .and_then(|id| self.institutions.iter().find(|i| i.id == *id))
+                    .map(|i| i.name.clone());
                 let description = prose_gen::generate_relationship_event(
                     &a_name, &b_name, kind.0.label(), true,
                     &mut self.rng, register, weirdness,
+                    inst_a.as_deref(), inst_b.as_deref(),
                 );
                 events.push(Event {
                     tick,
@@ -1864,9 +1880,16 @@ impl SimState {
                 || self.agents[ai].epithets.len() >= 2
                 || self.agents[bi].epithets.len() >= 2;
             if notable {
+                let inst_a = self.agents[ai].institution_ids.first()
+                    .and_then(|id| self.institutions.iter().find(|i| i.id == *id))
+                    .map(|i| i.name.clone());
+                let inst_b = self.agents[bi].institution_ids.first()
+                    .and_then(|id| self.institutions.iter().find(|i| i.id == *id))
+                    .map(|i| i.name.clone());
                 let description = prose_gen::generate_relationship_event(
                     &a_name, &b_name, "Rival", true,
                     &mut self.rng, register, weirdness,
+                    inst_a.as_deref(), inst_b.as_deref(),
                 );
                 events.push(Event {
                     tick,
@@ -1974,9 +1997,17 @@ impl SimState {
                         let a_name = self.agents[ai].display_name();
                         let b_name = self.agents.iter().find(|a| a.id == other_id)
                             .map(|a| a.display_name()).unwrap_or_else(|| "unknown".to_string());
+                        let inst_a = self.agents[ai].institution_ids.first()
+                            .and_then(|id| self.institutions.iter().find(|i| i.id == *id))
+                            .map(|i| i.name.clone());
+                        let oi_opt = self.agents.iter().position(|a| a.id == other_id);
+                        let inst_b = oi_opt.and_then(|oi| self.agents[oi].institution_ids.first())
+                            .and_then(|id| self.institutions.iter().find(|i| i.id == *id))
+                            .map(|i| i.name.clone());
                         let description = prose_gen::generate_relationship_event(
                             &a_name, &b_name, kind.label(), false,
                             &mut self.rng, register, weirdness,
+                            inst_a.as_deref(), inst_b.as_deref(),
                         );
                         events.push(Event {
                             tick,
