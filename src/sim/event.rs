@@ -36,6 +36,10 @@ pub enum EventType {
     AgentEmigrated,
     AgentImmigrated,
     NaturalDeath,
+    // Inhabitant events
+    InhabitantInteraction,
+    // Faction events
+    FactionDisbanded,
     // Eschaton events
     EschatonFired,
 }
@@ -61,7 +65,8 @@ impl EventType {
             | EventType::DoctrineShifted
             | EventType::MemberJoined
             | EventType::MemberDeparted
-            | EventType::MemberExpelled => Color::Rgb(100, 210, 220),
+            | EventType::MemberExpelled
+            | EventType::FactionDisbanded => Color::Rgb(100, 210, 220),
 
             // Political events — amber
             EventType::AllianceFormed
@@ -76,7 +81,8 @@ impl EventType {
             // Site events — rust
             EventType::AgentEnteredSite
             | EventType::AgentLeftSite
-            | EventType::AdventurerDiedInSite => Color::Rgb(200, 110, 90),
+            | EventType::AdventurerDiedInSite
+            | EventType::InhabitantInteraction => Color::Rgb(200, 110, 90),
 
             // Artifact events — gold
             EventType::ArtifactAcquired
@@ -102,7 +108,8 @@ impl EventType {
             EventType::InstitutionFounded | EventType::InstitutionDissolved
             | EventType::SchismOccurred | EventType::DoctrineShifted
             | EventType::MemberJoined | EventType::MemberDeparted
-            | EventType::MemberExpelled => "\u{25C6} ".to_string(), // ◆
+            | EventType::MemberExpelled
+            | EventType::FactionDisbanded => "\u{25C6} ".to_string(), // ◆
 
             EventType::AllianceFormed | EventType::AllianceStrained
             | EventType::RivalryDeclared => "\u{2694} ".to_string(), // ⚔ (crossed swords — political)
@@ -111,7 +118,8 @@ impl EventType {
             | EventType::SettlementShrank => "\u{2618} ".to_string(), // ☘ (environmental)
 
             EventType::AgentEnteredSite | EventType::AgentLeftSite
-            | EventType::AdventurerDiedInSite => "\u{2302} ".to_string(), // ⌂ (site)
+            | EventType::AdventurerDiedInSite
+            | EventType::InhabitantInteraction => "\u{2302} ".to_string(), // ⌂ (site)
 
             EventType::ArtifactAcquired | EventType::ArtifactDelivered
                 => "\u{2726} ".to_string(), // ✦ (artifact)

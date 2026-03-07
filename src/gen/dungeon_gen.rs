@@ -93,6 +93,8 @@ pub fn generate_sites(
 
         let history_entry = format!("Discovered at tick 0. {}", origin);
 
+        let inhabitants = generate_inhabitants(&kind, &floors, &phonemes[phoneme_idx], rng);
+
         sites.push(Site {
             id,
             name,
@@ -105,6 +107,7 @@ pub fn generate_sites(
             artifacts: Vec::new(),
             history: vec![history_entry],
             controlling_faction,
+            inhabitants,
         });
     }
 
@@ -411,6 +414,190 @@ mod tests {
                 "Seed {}: only {} dungeons (expected at least 2)",
                 seed, dungeon_count
             );
+        }
+    }
+}
+
+/// Generate permanent inhabitants for a site based on its kind.
+fn generate_inhabitants(
+    kind: &SiteKind,
+    floors: &[Floor],
+    phoneme_set: &name_gen::PhonemeSet,
+    rng: &mut StdRng,
+) -> Vec<SiteInhabitant> {
+    let count = rng.gen_range(2..=8);
+    let mut inhabitants = Vec::new();
+
+    for i in 0..count {
+        let floor_idx = rng.gen_range(0..floors.len());
+        let floor = &floors[floor_idx];
+
+        // Place inhabitant in a room on their floor
+        let (x, y) = if !floor.rooms.is_empty() {
+            let room = &floor.rooms[rng.gen_range(0..floor.rooms.len())];
+            (
+                rng.gen_range(room.x..room.x + room.w),
+                rng.gen_range(room.y..room.y + room.h),
+            )
+        } else {
+            (FLOOR_WIDTH / 2, FLOOR_HEIGHT / 2)
+        };
+
+        let (name, description, glyph) = generate_inhabitant_details(kind, phoneme_set, rng, i);
+
+        inhabitants.push(SiteInhabitant {
+            id: i,
+            name,
+            description,
+            glyph,
+            floor: floor_idx,
+            x,
+            y,
+        });
+    }
+
+    inhabitants
+}
+
+/// Generate name, description, and glyph for an inhabitant based on site kind.
+fn generate_inhabitant_details(
+    kind: &SiteKind,
+    phoneme_set: &name_gen::PhonemeSet,
+    rng: &mut StdRng,
+    _index: usize,
+) -> (String, String, char) {
+    match kind {
+        SiteKind::Dungeon => {
+            let names = [
+                "The Residual Clerk",
+                "Something That Was Once a Clerk",
+                "The Unnamed Occupant",
+                "A Former Surveyor",
+                "The Thing in the Corner",
+                "An Entity the Survey Team Declined to Classify",
+                "The Remnant Custodian",
+                "What the Ledger Calls 'Occupant VII'",
+            ];
+            let descs = [
+                "Something that was once a clerk, or perhaps still is — the distinction has become academic.",
+                "An entity the survey team declined to classify, citing insufficient categories.",
+                "A figure whose presence predates the current filing system.",
+                "Whatever remains of the last person assigned to this post.",
+                "An occupant whose employment status has been under review for longer than the reviewing body has existed.",
+                "Something that moves with purpose but without any purpose the observer can identify.",
+                "A presence that the census consistently fails to enumerate correctly.",
+                "An individual whose continued existence contradicts at least one official record.",
+            ];
+            (
+                names[rng.gen_range(0..names.len())].to_string(),
+                descs[rng.gen_range(0..descs.len())].to_string(),
+                'c', // creature
+            )
+        }
+        SiteKind::Ruin => {
+            let name = name_gen::generate_name_part_public(phoneme_set, 1, 2, rng);
+            let descs = [
+                "A remnant occupant who never received notification of the evacuation.",
+                "A squatter whose tenancy now exceeds that of the original builders.",
+                "Something that predates the current administrative regime by a comfortable margin.",
+                "An individual who claims prior residency under a legal framework that no longer exists.",
+                "A figure who has been here longer than the walls, and appears more structurally sound.",
+            ];
+            (
+                name,
+                descs[rng.gen_range(0..descs.len())].to_string(),
+                'r', // remnant
+            )
+        }
+        SiteKind::Shrine => {
+            let name = name_gen::generate_name_part_public(phoneme_set, 1, 2, rng);
+            let titles = ["Attendant", "Custodian", "Devoted", "Keeper", "Watcher"];
+            let full_name = format!("{} the {}", name, titles[rng.gen_range(0..titles.len())]);
+            let descs = [
+                "An attendant of unclear affiliation whose duties appear to be self-assigned.",
+                "A custodian who maintains the shrine according to a schedule they alone understand.",
+                "A devoted person whose devotion is to something the shrine may or may not represent.",
+                "A keeper whose keeping consists primarily of being present and occasionally disapproving.",
+                "An individual whose relationship to the shrine defies all standard classifications of employment.",
+            ];
+            (
+                full_name,
+                descs[rng.gen_range(0..descs.len())].to_string(),
+                's', // shrine attendant
+            )
+        }
+        SiteKind::BureaucraticAnnex => {
+            let name = name_gen::generate_name_part_public(phoneme_set, 1, 2, rng);
+            let titles = ["Filing Clerk", "Sub-Registrar", "Assistant to the Deputy", "Provisional Secretary", "Archivist (Interim)"];
+            let full_name = format!("{}, {}", name, titles[rng.gen_range(0..titles.len())]);
+            let descs = [
+                "A filing clerk whose employment status is itself the subject of an unresolved filing.",
+                "Staff of uncertain origin whose payroll records reference a department that does not exist.",
+                "An archivist who continues to archive despite the absence of anyone to archive for.",
+                "A clerk who processes forms that no one submits, with an efficiency that borders on the devotional.",
+                "An employee whose hiring paperwork was lost, creating a status the office terms 'administratively theoretical.'",
+            ];
+            (
+                full_name,
+                descs[rng.gen_range(0..descs.len())].to_string(),
+                'b', // bureaucrat
+            )
+        }
+        SiteKind::ControversialTombsite => {
+            let name = name_gen::generate_name_part_public(phoneme_set, 1, 2, rng);
+            let roles = ["Mourner", "Investigator", "Claimant", "Vigil-Keeper", "Petitioner"];
+            let role = roles[rng.gen_range(0..roles.len())];
+            let full_name = format!("{} the {}", name, role);
+            let descs = [
+                "A mourner whose grief appears to be professionally maintained.",
+                "An investigator examining claims that predate the investigation itself.",
+                "A party with a claim whose validity depends on which calendar one consults.",
+                "A vigil-keeper who has outlasted the purpose of the vigil but not the habit.",
+                "Someone who is here to represent interests that have never been formally articulated.",
+            ];
+            (
+                full_name,
+                descs[rng.gen_range(0..descs.len())].to_string(),
+                'm', // mourner
+            )
+        }
+        SiteKind::TaxonomicallyAmbiguousRegion => {
+            let descs = [
+                "A thing that resists classification with what can only be described as intent.",
+                "An entity whose taxonomy is the subject of a dispute between three academic bodies, none of which agree on the criteria.",
+                "Something the field guide describes only as 'see appendix,' though no appendix exists.",
+                "A presence that the survey team documented using a symbol they invented for the purpose and have since forgotten.",
+                "An organism — if that is the right word, and it may not be — of indeterminate phylum.",
+            ];
+            let names = [
+                "Specimen Unclassified",
+                "The Unnamed Taxonomy",
+                "Subject Pending Review",
+                "The Categorical Exception",
+                "Entity (See Footnote)",
+            ];
+            (
+                names[rng.gen_range(0..names.len())].to_string(),
+                descs[rng.gen_range(0..descs.len())].to_string(),
+                't', // taxonomic anomaly
+            )
+        }
+        SiteKind::AbandonedInstitution => {
+            let name = name_gen::generate_name_part_public(phoneme_set, 1, 2, rng);
+            let titles = ["Former Deputy", "Unreleased Employee", "Acting Director (Expired)", "Clerk (Unfired)", "Interim Permanent Secretary"];
+            let full_name = format!("{}, {}", name, titles[rng.gen_range(0..titles.len())]);
+            let descs = [
+                "A former member who did not receive the memo regarding dissolution, or received it and filed an objection.",
+                "An employee who never left, owing to a clause in their contract that no one remembers writing.",
+                "Someone who continues to report for duty at an institution that has not existed for some time.",
+                "A staff member whose termination paperwork was lost in the same event that terminated the institution.",
+                "An individual who maintains that the institution still exists, citing bylaws that the bylaws themselves do not reference.",
+            ];
+            (
+                full_name,
+                descs[rng.gen_range(0..descs.len())].to_string(),
+                'a', // abandoned staff
+            )
         }
     }
 }

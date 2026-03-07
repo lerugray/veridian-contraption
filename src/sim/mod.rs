@@ -367,14 +367,24 @@ impl SimState {
                 let description = match &action.event_type {
                     EventType::AgentEnteredSite | EventType::AgentLeftSite => {
                         // Find which site is at this position
-                        let site_name = self.sites.iter()
-                            .find(|s| s.grid_x == action.new_pos.0 && s.grid_y == action.new_pos.1)
-                            .map(|s| s.name.as_str())
-                            .unwrap_or("an unnamed site");
-                        prose_gen::generate_site_description(
+                        let site_info = self.sites.iter()
+                            .find(|s| s.grid_x == action.new_pos.0 && s.grid_y == action.new_pos.1);
+                        let site_name = site_info.map(|s| s.name.as_str()).unwrap_or("an unnamed site");
+                        // Pick a room purpose from the first floor if available
+                        let room_purpose = site_info.and_then(|s| {
+                            s.floors.first().and_then(|f| {
+                                if f.rooms.is_empty() { None }
+                                else {
+                                    let ri = (action.agent_id as usize) % f.rooms.len();
+                                    Some(f.rooms[ri].purpose.label())
+                                }
+                            })
+                        });
+                        prose_gen::generate_site_description_with_room(
                             &action.event_type,
                             &agent_name,
                             site_name,
+                            room_purpose,
                             &mut self.rng,
                             self.world.params.narrative_register,
                             self.world.params.weirdness_coefficient,
@@ -547,6 +557,7 @@ impl SimState {
                     | EventType::ArtifactAcquired
                     | EventType::ArtifactDelivered
                     | EventType::AdventurerDiedInSite
+                    | EventType::FactionDisbanded
                     | EventType::EschatonFired
             );
             if is_major {
@@ -1247,18 +1258,36 @@ impl SimState {
             }
         }
 
-        // Dissolve institutions with 0 members (check every 200 ticks)
+        // Clean up institutions: remove dead agents from member lists and disband empty/powerless factions
         if tick % 200 == 0 {
+            let living_ids: std::collections::HashSet<u64> = self.agents.iter()
+                .filter(|a| a.alive)
+                .map(|a| a.id)
+                .collect();
             for inst in &mut self.institutions {
                 if !inst.alive { continue; }
-                // Remove dead agents from member lists
-                let living_ids: std::collections::HashSet<u64> = self.agents.iter()
-                    .filter(|a| a.alive)
-                    .map(|a| a.id)
-                    .collect();
                 inst.member_ids.retain(|id| living_ids.contains(id));
 
-                if inst.member_ids.is_empty() {
+                // Factions with 0 members and power < 5 are disbanded
+                if inst.member_ids.is_empty() && inst.power < 5 {
+                    inst.alive = false;
+                    let inst_name = inst.name.clone();
+                    inst.chronicle.push(format!("Disbanded at tick {}. Zero members, insufficient resources.", tick));
+                    let description = prose_gen::generate_faction_disbanded(
+                        &inst_name,
+                        &mut self.rng,
+                        self.world.params.narrative_register,
+                        self.world.params.weirdness_coefficient,
+                    );
+                    events.push(Event {
+                        tick,
+                        event_type: EventType::FactionDisbanded,
+                        subject_id: None,
+                        location: None,
+                        description,
+                    });
+                } else if inst.member_ids.is_empty() {
+                    // 0 members but still has power — dissolve with existing prose
                     inst.alive = false;
                     let inst_name = inst.name.clone();
                     inst.chronicle.push("Dissolved due to lack of members.".to_string());
@@ -1722,6 +1751,62 @@ impl SimState {
                             self.agents[ai].current_goal = agent::Goal::AcquireArtifact(aid, si);
                         }
                     }
+                }
+            }
+        }
+
+        // --- Inhabitant interactions ---
+        // Check agents currently at sites for interactions with inhabitants
+        if tick % 5 == 0 {
+            for si in 0..self.sites.len() {
+                let site_pop: Vec<u64> = self.sites[si].population.clone();
+                if site_pop.is_empty() || self.sites[si].inhabitants.is_empty() {
+                    continue;
+                }
+                // ~15% chance per agent per 5-tick check
+                for &agent_id in &site_pop {
+                    if !self.rng.gen_bool(0.15) { continue; }
+                    let agent_idx = match self.agents.iter().position(|a| a.id == agent_id && a.alive) {
+                        Some(idx) => idx,
+                        None => continue,
+                    };
+                    let inhab_idx = self.rng.gen_range(0..self.sites[si].inhabitants.len());
+                    let inhab_name = self.sites[si].inhabitants[inhab_idx].name.clone();
+                    let inhab_desc = self.sites[si].inhabitants[inhab_idx].description.clone();
+                    let inhab_floor = self.sites[si].inhabitants[inhab_idx].floor;
+                    let site_name = self.sites[si].name.clone();
+                    let agent_name = self.agents[agent_idx].display_name();
+
+                    // Get room purpose for the inhabitant's location
+                    let room_purpose = self.sites[si].floors.get(inhab_floor).and_then(|f| {
+                        let ix = self.sites[si].inhabitants[inhab_idx].x;
+                        let iy = self.sites[si].inhabitants[inhab_idx].y;
+                        f.rooms.iter().find(|r| ix >= r.x && ix < r.x + r.w && iy >= r.y && iy < r.y + r.h)
+                            .map(|r| r.purpose.label())
+                    });
+
+                    let description = prose_gen::generate_inhabitant_interaction(
+                        &agent_name,
+                        &inhab_name,
+                        &inhab_desc,
+                        &site_name,
+                        room_purpose,
+                        &mut self.rng,
+                        self.world.params.narrative_register,
+                        self.world.params.weirdness_coefficient,
+                    );
+                    let (gx, gy) = (self.sites[si].grid_x, self.sites[si].grid_y);
+                    events.push(Event {
+                        tick,
+                        event_type: EventType::InhabitantInteraction,
+                        subject_id: Some(agent_id),
+                        location: Some((gx, gy)),
+                        description,
+                    });
+                    // Add to site history
+                    let history_entry = format!("Tick {}: {} encountered {} within the site.", tick, agent_name, inhab_name);
+                    self.sites[si].history.push(history_entry);
+                    break; // one interaction per site per check
                 }
             }
         }

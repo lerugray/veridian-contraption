@@ -134,6 +134,24 @@ pub struct Floor {
     pub rooms: Vec<Room>,
 }
 
+/// A permanent inhabitant of a site — distinct from visiting adventurer agents.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SiteInhabitant {
+    /// Unique ID within this site (0-based).
+    pub id: usize,
+    /// Name of the inhabitant.
+    pub name: String,
+    /// One-line description in the game's register.
+    pub description: String,
+    /// Display glyph (lowercase letter by type).
+    pub glyph: char,
+    /// Which floor this inhabitant resides on.
+    pub floor: usize,
+    /// Position within the floor (x, y).
+    pub x: usize,
+    pub y: usize,
+}
+
 /// A site of interest on the world map.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Site {
@@ -153,4 +171,7 @@ pub struct Site {
     pub history: Vec<String>,
     /// Institution ID that controls this site, if any.
     pub controlling_faction: Option<u64>,
+    /// Permanent inhabitants of this site (do not leave).
+    #[serde(default)]
+    pub inhabitants: Vec<SiteInhabitant>,
 }

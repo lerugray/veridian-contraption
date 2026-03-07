@@ -918,14 +918,22 @@ pub fn draw_site_list(frame: &mut Frame, sim: &SimState, selected: usize) {
                 String::new()
             };
 
+            let inhab_count = site.inhabitants.len();
+            let inhab_label = if inhab_count > 0 {
+                format!(" | {} inhabitant{}", inhab_count, if inhab_count == 1 { "" } else { "s" })
+            } else {
+                String::new()
+            };
+
             let detail = format!(
-                "     {} | ({},{}) | {} floor{} | {}{}",
+                "     {} | ({},{}) | {} floor{} | {}{}{}",
                 site.kind.label(),
                 site.grid_x, site.grid_y,
                 site.floors.len(),
                 if site.floors.len() == 1 { "" } else { "s" },
                 faction_label,
                 artifact_label,
+                inhab_label,
             );
             lines.push(Line::from(Span::styled(
                 detail,
@@ -1793,6 +1801,15 @@ pub fn draw_map_legend(frame: &mut Frame) {
         Line::from(vec![Span::styled("   3  ", Style::default().fg(Color::Rgb(100, 220, 230))),  Span::styled("Agent group (count shown)", desc)]),
         Line::from(vec![Span::styled("   X  ", Style::default().fg(Color::LightRed)),             Span::styled("Followed agent", desc)]),
         Line::from(vec![Span::styled("   \u{03A9}  ", Style::default().fg(Color::Red)),           Span::styled("Site (dungeon, ruin, etc.)", desc)]),
+        Line::from(""),
+        Line::from(Span::styled(" SITE INHABITANTS (in site view)", header)),
+        Line::from(vec![Span::styled("   c  ", Style::default().fg(Color::Rgb(180, 160, 200))),  Span::styled("Creature/marginal figure", desc)]),
+        Line::from(vec![Span::styled("   r  ", Style::default().fg(Color::Rgb(180, 160, 200))),  Span::styled("Remnant occupant", desc)]),
+        Line::from(vec![Span::styled("   s  ", Style::default().fg(Color::Rgb(180, 160, 200))),  Span::styled("Shrine attendant", desc)]),
+        Line::from(vec![Span::styled("   b  ", Style::default().fg(Color::Rgb(180, 160, 200))),  Span::styled("Bureaucratic staff", desc)]),
+        Line::from(vec![Span::styled("   m  ", Style::default().fg(Color::Rgb(180, 160, 200))),  Span::styled("Mourner/investigator", desc)]),
+        Line::from(vec![Span::styled("   t  ", Style::default().fg(Color::Rgb(180, 160, 200))),  Span::styled("Taxonomic anomaly", desc)]),
+        Line::from(vec![Span::styled("   a  ", Style::default().fg(Color::Rgb(180, 160, 200))),  Span::styled("Abandoned staff", desc)]),
         Line::from(""),
         Line::from(Span::styled(" ESC or l to close", dim)),
     ];

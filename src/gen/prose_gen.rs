@@ -394,8 +394,11 @@ pub fn generate_description(
         | EventType::SchismOccurred | EventType::DoctrineShifted
         | EventType::AllianceFormed | EventType::AllianceStrained
         | EventType::RivalryDeclared | EventType::MemberJoined
-        | EventType::MemberDeparted | EventType::MemberExpelled =>
+        | EventType::MemberDeparted | EventType::MemberExpelled
+        | EventType::FactionDisbanded =>
             format!("An institutional event occurred near {}.", loc),
+        EventType::InhabitantInteraction =>
+            format!("{} had an encounter within a site near {}.", name, loc),
         EventType::EschatonFired =>
             "The world has been fundamentally reorganized.".to_string(),
     }
@@ -940,7 +943,8 @@ fn gen_member_expelled(agent: &str, inst: &str, reg: NarrativeRegister, w: f32, 
 // SITE PROSE — now register-sensitive
 // ===========================================================================
 
-/// Generate prose for site entry/exit events.
+/// Generate prose for site entry/exit events, optionally referencing a room purpose.
+#[allow(dead_code)]
 pub fn generate_site_description(
     event_type: &EventType,
     agent_name: &str,
@@ -949,10 +953,34 @@ pub fn generate_site_description(
     register: NarrativeRegister,
     weirdness: f32,
 ) -> String {
-    match event_type {
+    generate_site_description_with_room(event_type, agent_name, site_name, None, rng, register, weirdness)
+}
+
+/// Generate prose for site entry/exit events with optional room purpose.
+pub fn generate_site_description_with_room(
+    event_type: &EventType,
+    agent_name: &str,
+    site_name: &str,
+    room_purpose: Option<&str>,
+    rng: &mut StdRng,
+    register: NarrativeRegister,
+    weirdness: f32,
+) -> String {
+    let base = match event_type {
         EventType::AgentEnteredSite => gen_site_entered(agent_name, site_name, register, weirdness, rng),
         EventType::AgentLeftSite => gen_site_left(agent_name, site_name, register, weirdness, rng),
         _ => format!("{} had dealings with {}. The nature of these dealings was not recorded.", agent_name, site_name),
+    };
+    // Append room purpose context ~40% of the time when available
+    if let Some(purpose) = room_purpose {
+        if rng.gen_bool(0.4) {
+            let room_clause = room_purpose_clause(purpose, register, rng);
+            format!("{} {}", base, room_clause)
+        } else {
+            base
+        }
+    } else {
+        base
     }
 }
 
@@ -1113,4 +1141,159 @@ pub fn nearest_settlement_name(x: u32, y: u32, world: &World) -> String {
     }
 
     best_name
+}
+
+// ===========================================================================
+// ROOM PURPOSE PROSE
+// ===========================================================================
+
+/// Generate a clause referencing a room's purpose.
+fn room_purpose_clause(purpose: &str, reg: NarrativeRegister, rng: &mut StdRng) -> String {
+    match purpose {
+        "Storage" => match rng.gen_range(0..4) {
+            0 => format!("The room in question served as storage — crates stacked with the {} of an office that has forgotten what it stored.", pick_noun(reg, rng)),
+            1 => "The chamber had been designated for storage, a purpose it fulfilled with the mute patience of furniture.".to_string(),
+            2 => "Shelves lined the walls, bearing objects whose inventory tags had outlived their legibility.".to_string(),
+            _ => format!("The storage chamber contained items the {} described only as 'miscellaneous,' a category broad enough to include everything.", pick_noun(reg, rng)),
+        },
+        "Ritual" => match rng.gen_range(0..4) {
+            0 => "The chamber bore the unmistakable markings of ritual use — stains that formed patterns no cleaning could fully address.".to_string(),
+            1 => format!("The ritual chamber's purpose was evident from the arrangement of objects the {} had declined to catalogue.", pick_noun(reg, rng)),
+            2 => "The room's ceremonial purpose was attested to by inscriptions that contradicted each other with impressive thoroughness.".to_string(),
+            _ => "A ritual chamber, the rites of which had been discontinued but whose atmosphere had not yet received the memo.".to_string(),
+        },
+        "Administrative" => match rng.gen_range(0..4) {
+            0 => format!("The administrative office still contained desks arranged for a {} that would never convene.", pick_noun(reg, rng)),
+            1 => "The room was unmistakably administrative — the air itself tasted faintly of old paper and institutional regret.".to_string(),
+            2 => format!("An administrative chamber, its filing cabinets {} with a finality that suggested the files had won.", pick_verb(reg, rng)),
+            _ => "The office retained the organized desolation of a workspace whose purpose had concluded but whose furniture had not been informed.".to_string(),
+        },
+        "Habitation" => match rng.gen_range(0..4) {
+            0 => "The room showed signs of habitation — or rather, signs that habitation had once occurred and then thought better of it.".to_string(),
+            1 => "A residential chamber whose last occupant had departed with more haste than tidiness.".to_string(),
+            2 => "The quarters were arranged for comfort of a kind that no longer applied to anyone present.".to_string(),
+            _ => format!("The living quarters were {} by the {} as 'formerly occupied,' a designation that raised no questions because no one was present to ask them.", pick_verb(reg, rng), pick_noun(reg, rng)),
+        },
+        "Trophy" => match rng.gen_range(0..4) {
+            0 => "The trophy room displayed achievements that the current occupants could neither verify nor explain.".to_string(),
+            1 => "A chamber of trophies, each commemorating a victory whose nature the accompanying plaques had been carefully vague about.".to_string(),
+            2 => format!("The trophy hall's displays were {} by a {} that had not been updated since the last era of coherent record-keeping.", pick_verb(reg, rng), pick_noun(reg, rng)),
+            _ => "The trophies lining the walls represented accomplishments that ranged from the military to the taxonomic, with several that defied either category.".to_string(),
+        },
+        "Disputed" => match rng.gen_range(0..4) {
+            0 => "The room's purpose was itself the subject of an ongoing dispute between parties who had never occupied it.".to_string(),
+            1 => format!("A chamber whose designation was the subject of a {} that had outlasted the room's structural integrity.", pick_noun(reg, rng)),
+            2 => "The room's function was disputed — three competing plaques on the door offered contradictory explanations with equal confidence.".to_string(),
+            _ => "A disputed chamber, claimed simultaneously as a meeting room, a reliquary, and a broom closet by factions who had never visited.".to_string(),
+        },
+        _ => String::new(),
+    }
+}
+
+// ===========================================================================
+// INHABITANT INTERACTION PROSE
+// ===========================================================================
+
+/// Generate prose for an interaction between an adventurer and a site inhabitant.
+pub fn generate_inhabitant_interaction(
+    agent_name: &str,
+    inhabitant_name: &str,
+    _inhabitant_desc: &str,
+    site_name: &str,
+    room_purpose: Option<&str>,
+    rng: &mut StdRng,
+    register: NarrativeRegister,
+    weirdness: f32,
+) -> String {
+    let outcome = rng.gen_range(0..4); // 0=ignored, 1=questioned, 2=assisted, 3=driven out
+    let base = match outcome {
+        0 => gen_inhabitant_ignored(agent_name, inhabitant_name, site_name, register, weirdness, rng),
+        1 => gen_inhabitant_questioned(agent_name, inhabitant_name, site_name, register, weirdness, rng),
+        2 => gen_inhabitant_assisted(agent_name, inhabitant_name, site_name, register, weirdness, rng),
+        _ => gen_inhabitant_drove_out(agent_name, inhabitant_name, site_name, register, weirdness, rng),
+    };
+    // Optionally append room context
+    if let Some(purpose) = room_purpose {
+        if rng.gen_bool(0.35) {
+            let clause = room_purpose_clause(purpose, register, rng);
+            format!("{} {}", base, clause)
+        } else {
+            base
+        }
+    } else {
+        base
+    }
+}
+
+fn gen_inhabitant_ignored(name: &str, inhab: &str, site: &str, reg: NarrativeRegister, _w: f32, rng: &mut StdRng) -> String {
+    match rng.gen_range(0..6) {
+        0 => format!("{} encountered {} within {}. Neither party acknowledged the other, which appeared to be the preferred protocol.", name, inhab, site),
+        1 => format!("{} passed {} in the corridors of {} without incident. The {} continued whatever it was doing, which was not immediately apparent.", name, inhab, site, inhab),
+        2 => format!("{} and {} occupied the same chamber in {} for a period the {} would later describe as 'uneventful,' a word doing considerable work.", name, inhab, site, pick_noun(reg, rng)),
+        3 => format!("{} was present when {} entered the room, but gave no sign of having noticed. This may have been intentional. It may also have been something else.", inhab, name),
+        4 => format!("In {}, {} encountered {}, who declined all forms of interaction with a thoroughness that bordered on artistry.", site, name, inhab),
+        _ => format!("{} moved through {} where {} resided. The resident's indifference was comprehensive and, one suspects, practiced.", name, site, inhab),
+    }
+}
+
+fn gen_inhabitant_questioned(name: &str, inhab: &str, site: &str, reg: NarrativeRegister, w: f32, rng: &mut StdRng) -> String {
+    match rng.gen_range(0..6) {
+        0 => format!("{} was questioned by {} upon entering {}. The questions concerned matters of {} that {} was not equipped to answer.", name, inhab, site, pick_cause(w, rng), name),
+        1 => format!("{} demanded credentials from {} within {}. The credentials produced were {} by the occupant and returned without comment.", inhab, name, site, pick_verb(reg, rng)),
+        2 => format!("{} interrogated {} regarding their business in {}. The business, once explained, was {} by the occupant as 'administratively improbable.'", inhab, name, site, pick_verb(reg, rng)),
+        3 => format!("Upon encountering {} in {}, {} asked a series of questions whose answers were apparently unsatisfactory, as they were asked again.", name, site, inhab),
+        4 => format!("{} was challenged by {} in {}. The challenge was procedural in nature and concerned documentation that {} did not possess.", name, inhab, site, name),
+        _ => format!("{} met {} in the lower reaches of {}. A brief but intense exchange of questions followed, none of which were answered to anyone's satisfaction.", name, inhab, site),
+    }
+}
+
+fn gen_inhabitant_assisted(name: &str, inhab: &str, site: &str, reg: NarrativeRegister, _w: f32, rng: &mut StdRng) -> String {
+    match rng.gen_range(0..6) {
+        0 => format!("{} provided {} with directions through {} that were, against all expectation, accurate.", inhab, name, site),
+        1 => format!("{} received unexpected assistance from {} within {}. The assistance consisted of information the {} would later classify as 'technically useful.'", name, inhab, site, pick_noun(reg, rng)),
+        2 => format!("{} guided {} through a section of {} that the maps had neglected to include. Whether this constituted helpfulness or something more ambiguous remained unclear.", inhab, name, site),
+        3 => format!("{} offered {} safe passage through their chamber in {}. The passage was indeed safe. The chamber was another matter.", inhab, name, site),
+        4 => format!("Within {}, {} indicated to {} an exit that the architecture had attempted to conceal. The motivation for this assistance was not explained.", site, inhab, name),
+        _ => format!("{} shared provisions with {} in {}, an act of generosity the {} {} with evident surprise.", inhab, name, site, pick_noun(reg, rng), pick_verb(reg, rng)),
+    }
+}
+
+fn gen_inhabitant_drove_out(name: &str, inhab: &str, site: &str, reg: NarrativeRegister, w: f32, rng: &mut StdRng) -> String {
+    match rng.gen_range(0..6) {
+        0 => format!("{} was driven from a section of {} by {}, who objected to the intrusion on grounds the {} classified as {}.", name, site, inhab, pick_noun(reg, rng), pick_cause(w, rng)),
+        1 => format!("{} made it clear — through means that were not entirely verbal — that {} was not welcome in this part of {}.", inhab, name, site),
+        2 => format!("{} retreated from an encounter with {} in {}, a tactical decision the {} would later {} as 'prudent.'", name, inhab, site, pick_noun(reg, rng), pick_verb(reg, rng)),
+        3 => format!("{} expressed territorial displeasure at the presence of {} in {}. The expression was persuasive.", inhab, name, site),
+        4 => format!("The deeper corridors of {} proved inhospitable, largely due to the efforts of {}, who regarded {} with what the {} described as 'active disapproval.'", site, inhab, name, pick_noun(reg, rng)),
+        _ => format!("{} was expelled from a chamber of {} by {}, who had been there longer and intended to remain longer still.", name, site, inhab),
+    }
+}
+
+// ===========================================================================
+// FACTION DISBANDING PROSE
+// ===========================================================================
+
+/// Generate prose for a faction being disbanded due to zero members and low power.
+pub fn generate_faction_disbanded(
+    faction_name: &str,
+    rng: &mut StdRng,
+    register: NarrativeRegister,
+    weirdness: f32,
+) -> String {
+    match rng.gen_range(0..8) {
+        0 => format!("The {} was formally dissolved, its membership having preceded it into nonexistence. The {} was {} without ceremony.", faction_name, pick_noun(register, rng), pick_verb(register, rng)),
+        1 => format!("The dissolution of the {} was recorded in the ledger with the particular efficiency reserved for things that have already happened. No objections were raised, as there was no one remaining to raise them.", faction_name),
+        2 => format!("The {} ceased to exist, a development the administrative record {} with characteristic indifference. Its charter was archived under 'concluded entities.'", faction_name, pick_verb(register, rng)),
+        3 => format!("The last trace of the {} was a filing cabinet that no one claimed. The {} was closed {}.", faction_name, pick_noun(register, rng), pick(TEMPORAL_HEDGES, rng)),
+        4 => match register {
+            NarrativeRegister::Ominous => format!("The {} is gone. It will not be missed, because there is no one left to miss it.", faction_name),
+            NarrativeRegister::Lyrical => format!("The {} dissolved the way institutions dissolve — not with a declaration, but with a silence that no one noticed was silence until it had been going on for some time.", faction_name),
+            NarrativeRegister::Clinical => format!("Entity dissolution: {}. Contributing factors: membership depletion, resource exhaustion. {} closed.", faction_name, pick_noun(register, rng)),
+            NarrativeRegister::Conspiratorial => format!("The {} was officially disbanded, though certain {} suggest it may continue to exist in a form its former members would not recognize.", faction_name, pick_noun(register, rng)),
+            _ => format!("The {} was struck from the register of active institutions, {}.", faction_name, event_subordinate_clause(register, weirdness, rng)),
+        },
+        5 => format!("The {} was disbanded after a final audit revealed zero members, zero assets, and a filing backlog that exceeded the institution's entire operational history.", faction_name),
+        6 => format!("The {} concluded its existence with the quiet finality of a door closing in an empty building. The {} {} the closure and moved on to more pressing vacancies.", faction_name, pick_noun(register, rng), pick_verb(register, rng)),
+        _ => format!("The administrative record of the {} was transferred to the archives, where it will join other concluded entities in a silence the archivist describes as 'comprehensive.'", faction_name),
+    }
 }

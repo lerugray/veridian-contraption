@@ -491,7 +491,6 @@ fn draw_site_panel(frame: &mut Frame, area: Rect, sim: &SimState, site_idx: usiz
         .border_style(Style::default().fg(site.kind.map_color()));
 
     // Build agent positions within this site for overlay
-    // (For now, agents don't actually move within sites — just show population)
     let agent_positions: Vec<(usize, usize, usize)> = site.population.iter()
         .filter_map(|&aid| {
             sim.agents.iter().find(|a| a.id == aid && a.alive).map(|a| {
@@ -505,6 +504,12 @@ fn draw_site_panel(frame: &mut Frame, area: Rect, sim: &SimState, site_idx: usiz
                 }
             })
         })
+        .collect();
+
+    // Build inhabitant positions on this floor
+    let inhabitant_positions: Vec<(usize, usize, char)> = site.inhabitants.iter()
+        .filter(|i| i.floor == floor_idx)
+        .map(|i| (i.x, i.y, i.glyph))
         .collect();
 
     let inner_w = area.width.saturating_sub(2) as usize;
@@ -534,6 +539,9 @@ fn draw_site_panel(frame: &mut Frame, area: Rect, sim: &SimState, site_idx: usiz
                     let color = PEOPLE_COLORS[people_id % PEOPLE_COLORS.len()];
                     let s: String = std::iter::repeat('@').take(w.max(1)).collect();
                     Span::styled(s, Style::default().fg(color))
+                } else if let Some((_, _, glyph)) = inhabitant_positions.iter().find(|(ix, iy, _)| *ix == x && *iy == y) {
+                    let s: String = std::iter::repeat(*glyph).take(w.max(1)).collect();
+                    Span::styled(s, Style::default().fg(Color::Rgb(180, 160, 200)))
                 } else {
                     let tile = floor.tiles[y][x];
                     let s: String = std::iter::repeat(tile.glyph()).take(w.max(1)).collect();
