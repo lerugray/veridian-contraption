@@ -12,7 +12,7 @@ use crate::sim::eschaton::{ESCHATON_COOLDOWN, TENSION_THRESHOLD, COSMO_THRESHOLD
 use crate::gen::prose_gen;
 
 /// Draw the agent inspect overlay as a centered box over the main layout.
-pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize) {
+pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize, scroll: usize) {
     let area = centered_rect(60, 70, frame.area());
     frame.render_widget(Clear, area);
 
@@ -230,27 +230,44 @@ pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize)
         for event in recent {
             let prefix = format!("  [{}] ", event.tick);
             let max_desc = inner_width.saturating_sub(prefix.len());
-            let desc = if event.description.len() > max_desc && max_desc > 3 {
-                format!("{}...", &event.description[..max_desc - 3])
-            } else {
-                event.description.clone()
-            };
-            lines.push(Line::from(vec![
-                Span::styled(prefix, Style::default().fg(Color::DarkGray)),
-                Span::styled(desc, Style::default().fg(Color::Gray)),
-            ]));
+            // Word-wrap the description into lines that fit the overlay width
+            let wrapped = word_wrap(&event.description, max_desc.max(1));
+            for (i, chunk) in wrapped.iter().enumerate() {
+                if i == 0 {
+                    lines.push(Line::from(vec![
+                        Span::styled(prefix.clone(), Style::default().fg(Color::DarkGray)),
+                        Span::styled(chunk.clone(), Style::default().fg(Color::Gray)),
+                    ]));
+                } else {
+                    let indent = " ".repeat(prefix.len());
+                    lines.push(Line::from(vec![
+                        Span::styled(indent, Style::default()),
+                        Span::styled(chunk.clone(), Style::default().fg(Color::Gray)),
+                    ]));
+                }
+            }
         }
     }
 
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(" ESC to close", Style::default().fg(Color::DarkGray))));
+    lines.push(Line::from(Span::styled(
+        " ESC=close  Up/Down/PgUp/PgDn=scroll",
+        Style::default().fg(Color::DarkGray),
+    )));
 
     let block = Block::default()
         .title(format!(" INSPECT: {} ", agent.name))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan));
 
-    let widget = Paragraph::new(lines).block(block);
+    // Cap scroll so the last line is visible at the bottom
+    let inner_height = area.height.saturating_sub(2) as usize; // subtract top+bottom borders
+    let max_scroll = lines.len().saturating_sub(inner_height);
+    let effective_scroll = scroll.min(max_scroll);
+
+    let widget = Paragraph::new(lines)
+        .block(block)
+        .scroll((effective_scroll as u16, 0));
     frame.render_widget(widget, area);
 }
 
@@ -1888,6 +1905,43 @@ fn disposition_bar(value: f32) -> String {
     let filled = (value * 10.0).round() as usize;
     let empty = 10 - filled.min(10);
     format!("[{}{}] {:.0}%", "#".repeat(filled), ".".repeat(empty), value * 100.0)
+}
+
+/// Word-wrap a string to fit within `width` characters, breaking at word boundaries.
+fn word_wrap(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return vec![text.to_string()];
+    }
+    let mut result = Vec::new();
+    let mut current_line = String::new();
+    for word in text.split_whitespace() {
+        if current_line.is_empty() {
+            if word.len() > width {
+                // Single word longer than width — force it onto its own line
+                result.push(word.to_string());
+            } else {
+                current_line = word.to_string();
+            }
+        } else if current_line.len() + 1 + word.len() > width {
+            result.push(current_line);
+            if word.len() > width {
+                result.push(word.to_string());
+                current_line = String::new();
+            } else {
+                current_line = word.to_string();
+            }
+        } else {
+            current_line.push(' ');
+            current_line.push_str(word);
+        }
+    }
+    if !current_line.is_empty() {
+        result.push(current_line);
+    }
+    if result.is_empty() {
+        result.push(String::new());
+    }
+    result
 }
 
 /// Draw the map legend overlay showing symbol meanings.

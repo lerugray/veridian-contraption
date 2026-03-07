@@ -540,7 +540,7 @@ fn handle_world_report_input(
 fn handle_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifiers) -> InputResult {
     match &sim.overlay {
         Overlay::None => handle_main_game_input(sim, key, modifiers),
-        Overlay::InspectAgent(_) => { handle_inspect_input(sim, key); InputResult::Continue }
+        Overlay::InspectAgent(_, _) => { handle_inspect_input(sim, key); InputResult::Continue }
         Overlay::AgentSearch(_, _) => { handle_search_input(sim, key); InputResult::Continue }
         Overlay::AgentList(_) => { handle_agent_list_input(sim, key); InputResult::Continue }
         Overlay::FactionList(_) => { handle_faction_list_input(sim, key); InputResult::Continue }
@@ -676,8 +676,17 @@ fn handle_main_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifi
 
 /// Input handling when inspecting an agent.
 fn handle_inspect_input(sim: &mut SimState, key: KeyCode) {
+    let (idx, scroll) = if let Overlay::InspectAgent(i, s) = sim.overlay {
+        (i, s)
+    } else {
+        return;
+    };
     match key {
         KeyCode::Esc => sim.overlay = Overlay::None,
+        KeyCode::Up => { sim.overlay = Overlay::InspectAgent(idx, scroll.saturating_sub(1)); }
+        KeyCode::Down => { sim.overlay = Overlay::InspectAgent(idx, scroll + 1); }
+        KeyCode::PageUp => { sim.overlay = Overlay::InspectAgent(idx, scroll.saturating_sub(10)); }
+        KeyCode::PageDown => { sim.overlay = Overlay::InspectAgent(idx, scroll + 10); }
         _ => {}
     }
 }
@@ -698,7 +707,7 @@ fn handle_search_input(sim: &mut SimState, key: KeyCode) {
             if query.len() >= 2 {
                 let matches = sim.search_agents(&query);
                 if let Some(&idx) = matches.get(selected) {
-                    sim.overlay = Overlay::InspectAgent(idx);
+                    sim.overlay = Overlay::InspectAgent(idx, 0);
                 } else {
                     sim.set_status_message("No matching agents found.".to_string());
                     sim.overlay = Overlay::None;
@@ -752,7 +761,7 @@ fn handle_agent_list_input(sim: &mut SimState, key: KeyCode) {
         }
         KeyCode::Enter => {
             if let Some(&idx) = living.get(selected) {
-                sim.overlay = Overlay::InspectAgent(idx);
+                sim.overlay = Overlay::InspectAgent(idx, 0);
             }
         }
         _ => {}

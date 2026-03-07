@@ -1,57 +1,55 @@
 # SESSION NOTES — Last updated: 2026-03-06
 
 ## Current State
-- Phase: Phase 5 COMPLETE + post-phase polish (seasons, relationships)
-- Last working feature: Agent relationship system
+- Phase: Phase 5 COMPLETE + post-phase polish (seasons, relationships, inspect fixes)
+- Last working feature: Inspect overlay scroll capping
 - Build status: Compiles and runs cleanly (5 warnings, all pre-existing dead_code)
 - Tests: All passing
 
 ## What We Did
 - Implemented a full agent relationship system
-- **Relationship types**: Friend, Rival, Partner, Mentor/Protégé, Estranged
+- Fixed inspect overlay chronicle display (word-wrap, scrolling, scroll bounds)
+
+### Relationship System
+- **Types**: Friend, Rival, Partner, Mentor/Protégé, Estranged (with intensity 1-3)
 - **Formation**: Proximity-based (agents at same tile), every 20 ticks
-  - Friends: compatible dispositions (similar loyalty/ambition), ~1.5% chance per co-located pair
-  - Rivals: conflicting institutions or opposed dispositions, ~1% chance
-  - Partners: high compatibility + rare roll (15% of eligible friend formations)
-  - Mentor/Protégé: older agent (10+ years) sharing institution with younger agent
-- **Intensity**: 1-3 scale, deepens over time based on relationship age
-- **Evolution** (every 100 ticks):
-  - Friends deepen (intensity++) or cool into Estranged
-  - Partners deepen or dissolve into Estranged
-  - Rivals intensify or reconcile into Friend (rare)
-  - Mentor/Protégé deepen over time
-- **Behavioral effects**:
-  - Friends accompany each other to sites (nearby friend heading to site → chance to follow)
-  - Partners: higher adventurer conversion if partner is in danger (exploring site)
-  - Estranged agents flee settlements when the other is present
-  - Protégés get 3x boosted institution join chance (mentor smooths path)
-- **Visibility**:
-  - Agent inspect overlay: RELATIONSHIPS section with name, type, intensity
-  - Log entries: only notable agents (2+ institutions or 2+ epithets) generate log events
-  - World Report (W): shows "Active relationships" count
-- **Event types**: RelationshipFormed, RelationshipChanged (with prose generation)
-- **Save/load**: Relationships serialize via serde with #[serde(default)] for old saves
+  - Friends: compatible dispositions (~1.5% chance per co-located pair)
+  - Rivals: conflicting institutions or opposed dispositions (~1%)
+  - Partners: high compatibility + rare roll
+  - Mentor/Protégé: older agent (10+ years) sharing institution with younger
+- **Evolution** (every 100 ticks): friendships deepen/cool, partners deepen/dissolve, rivals intensify/reconcile
+- **Behavioral effects**: friends accompany to sites, partners boost adventuring, estranged flee, protégés get 3x join boost
+- **Visibility**: inspect overlay RELATIONSHIPS section, world report count, log events for notable agents only
+- **Event types**: RelationshipFormed, RelationshipChanged
+- **Save compat**: #[serde(default)] for old saves
+
+### Inspect Overlay Fixes
+- Chronicle entries word-wrap at word boundaries (word_wrap helper function)
+- Inspect overlay is scrollable (Up/Down/PgUp/PgDn)
+- Scroll capped so it stops at last entry (no empty space past end)
+- InspectAgent overlay variant now stores (agent_idx, scroll_offset)
 
 ## Files Modified This Session
-- src/sim/agent.rs — RelationshipKind, Relationship struct, relationships field on Agent
+- src/sim/agent.rs — RelationshipKind, Relationship struct, relationships field
 - src/sim/event.rs — RelationshipFormed, RelationshipChanged event types
-- src/sim/mod.rs — process_relationship_tick(), relationship_count(), mentor boost in institutional join, behavioral effects
-- src/gen/prose_gen.rs — generate_relationship_event() with register-aware templates
-- src/ui/overlays.rs — RELATIONSHIPS section in inspect overlay, relationship count in world report
+- src/sim/mod.rs — process_relationship_tick(), relationship_count(), InspectAgent(usize, usize)
+- src/gen/prose_gen.rs — generate_relationship_event()
 - src/gen/world_gen.rs — relationships: Vec::new() in Agent initializers
 - src/gen/eschaton_gen.rs — relationships: Vec::new() in Agent initializers
+- src/ui/overlays.rs — RELATIONSHIPS in inspect, word_wrap(), scroll support, scroll capping
+- src/ui/layout.rs — InspectAgent(idx, scroll) destructuring
+- src/main.rs — handle_inspect_input with scroll keys, InspectAgent(idx, 0) calls
 
 ## Decisions Made
-- Relationships stored per-agent (Vec<Relationship>) rather than a central table — simpler, serializes naturally
-- Both sides of a relationship are stored (agent A has rel to B, B has rel to A) for fast lookup
-- Formation checks run every 20 ticks; evolution every 100 ticks — balances performance with responsiveness
-- Only notable agents generate log events (2+ institutions or 2+ epithets) to avoid log spam
-- Proximity = same grid tile (agents must be co-located, not just nearby) for formation
-- relationship_count() divides by 2 since each relationship is stored on both agents
+- Relationships stored per-agent (both sides) for fast lookup
+- Formation every 20 ticks, evolution every 100 ticks
+- Only notable agents (2+ institutions or 2+ epithets) generate log events
+- word_wrap() breaks at whitespace boundaries, handles words longer than width
+- Scroll capping done in renderer (max_scroll = lines.len() - inner_height)
 
 ## Known Issues
 - 5 compiler warnings (pre-existing, all dead_code)
-- Old saves will work fine — relationships default to empty Vec via serde(default)
+- Old saves work fine — relationships default to empty Vec
 
 ## Next Steps
 - Further polish / new features as directed by player
@@ -60,6 +58,6 @@
 ## Notes for Next Claude
 - Player is not a programmer — explain decisions briefly, don't ask them to edit code
 - All 5 phases complete plus post-phase polish
-- Relationship system: RelationshipKind/Relationship in agent.rs, process_relationship_tick() in mod.rs
+- InspectAgent overlay is now InspectAgent(usize, usize) — (agent_idx, scroll_offset)
 - Speed keybindings: 0/1/2/3 (not the old 1/5/2 scheme)
 - SESSION_NOTES.md should be fully rewritten each update, not appended to

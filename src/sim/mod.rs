@@ -82,8 +82,8 @@ pub struct AnnalsEntry {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Overlay {
     None,
-    /// Inspecting a specific agent by index into the agents vec.
-    InspectAgent(usize),
+    /// Inspecting a specific agent by index into the agents vec. (agent_idx, scroll_offset)
+    InspectAgent(usize, usize),
     /// Agent search: player is typing a name to find. (query, selected match index)
     AgentSearch(String, usize),
     /// Browsable list of all living agents. (selected index into filtered list)

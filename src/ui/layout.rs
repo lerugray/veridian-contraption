@@ -95,8 +95,8 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
     // Draw overlays on top of the main layout
     match &sim.overlay {
         Overlay::None => {}
-        Overlay::InspectAgent(idx) => {
-            overlays::draw_inspect_overlay(frame, sim, *idx);
+        Overlay::InspectAgent(idx, scroll) => {
+            overlays::draw_inspect_overlay(frame, sim, *idx, *scroll);
         }
         Overlay::AgentSearch(query, selected) => {
             overlays::draw_search_overlay(frame, sim, query, *selected);
