@@ -216,12 +216,15 @@ pub struct SimState {
     pub eschaton_flash: u32,
     /// Global frame counter for animations (not saved).
     pub frame_count: u64,
+    /// Next agent ID to assign (monotonically increasing).
+    pub next_agent_id: u64,
 }
 
 impl SimState {
     pub fn new(world: World, agents: Vec<Agent>, institutions: Vec<Institution>, sites: Vec<Site>, artifacts: Vec<Artifact>) -> Self {
         let mut rng = StdRng::seed_from_u64(world.seed.wrapping_add(1));
-        let next_id = institutions.iter().map(|i| i.id + 1).max().unwrap_or(0);
+        let next_inst_id = institutions.iter().map(|i| i.id + 1).max().unwrap_or(0);
+        let next_agent_id = agents.iter().map(|a| a.id + 1).max().unwrap_or(0);
         let genesis = Event {
             tick: 0,
             event_type: EventType::WorldGenesis,
@@ -245,7 +248,7 @@ impl SimState {
             rng,
             save_name: None,
             last_autosave_tick: 0,
-            next_institution_id: next_id,
+            next_institution_id: next_inst_id,
             follow_target: None,
             pre_pause_speed: None,
             annals: Vec::new(),
@@ -260,6 +263,7 @@ impl SimState {
             last_eschaton_tick: 0,
             eschaton_flash: 0,
             frame_count: 0,
+            next_agent_id,
         }
     }
 
@@ -290,7 +294,8 @@ impl SimState {
     pub fn from_save_data(data: SaveData) -> Self {
         let mut rng = StdRng::seed_from_u64(data.rng_state_seed);
         let last_tick = data.world.tick;
-        let next_id = data.institutions.iter().map(|i| i.id + 1).max().unwrap_or(0);
+        let next_inst_id = data.institutions.iter().map(|i| i.id + 1).max().unwrap_or(0);
+        let next_agent_id = data.agents.iter().map(|a| a.id + 1).max().unwrap_or(0);
         let era_name = data.current_era_name
             .unwrap_or_else(|| name_gen::generate_era_name(data.annals.len() as u32, &mut rng));
         Self {
@@ -308,7 +313,7 @@ impl SimState {
             rng,
             save_name: data.save_name,
             last_autosave_tick: last_tick,
-            next_institution_id: next_id,
+            next_institution_id: next_inst_id,
             follow_target: data.follow_target,
             pre_pause_speed: None,
             annals: data.annals,
@@ -323,6 +328,7 @@ impl SimState {
             last_eschaton_tick: data.last_eschaton_tick,
             eschaton_flash: 0,
             frame_count: 0,
+            next_agent_id,
         }
     }
 
@@ -489,6 +495,10 @@ impl SimState {
             });
         }
 
+        // --- Demographic simulation (births, emigration, immigration) ---
+        let mut demo_events = self.process_demographic_tick(tick);
+        new_events.append(&mut demo_events);
+
         // --- Institutional simulation ---
         let mut inst_events = self.process_institutional_tick(tick);
         new_events.append(&mut inst_events);
@@ -574,7 +584,7 @@ impl SimState {
         // Each major event type adds tension; slow decay per tick
         for event in &new_events {
             match event.event_type {
-                EventType::AgentDied => self.tension += 0.02,
+                EventType::AgentDied | EventType::NaturalDeath => self.tension += 0.02,
                 EventType::InstitutionDissolved => self.tension += 0.05,
                 EventType::SchismOccurred => self.tension += 0.03,
                 EventType::RivalryDeclared | EventType::AllianceStrained => self.tension += 0.02,
@@ -778,11 +788,12 @@ impl SimState {
                 }
             }
             EschatonType::TheArrivalOfSomethingOwed => {
-                let max_id = self.agents.iter().map(|a| a.id).max().unwrap_or(0) + 1;
                 eschaton_gen::execute_arrival(
                     &mut self.agents, &self.world.settlements,
-                    self.world.peoples.len(), &phonemes, max_id, &mut self.rng,
+                    self.world.peoples.len(), &phonemes, self.next_agent_id, &mut self.rng,
                 );
+                // Update next_agent_id to account for any agents added by the eschaton
+                self.next_agent_id = self.agents.iter().map(|a| a.id + 1).max().unwrap_or(self.next_agent_id);
             }
         }
 
@@ -820,6 +831,210 @@ impl SimState {
     /// Check whether the Eschaton can fire (cooldown check).
     pub fn can_eschaton(&self) -> bool {
         self.last_eschaton_tick == 0 || self.world.tick - self.last_eschaton_tick >= ESCHATON_COOLDOWN
+    }
+
+    /// Process demographic events: births, emigration, immigration.
+    /// Runs every 10 ticks to reduce overhead. Rates scaled by temporal_rate.
+    fn process_demographic_tick(&mut self, tick: u64) -> Vec<Event> {
+        let mut events = Vec::new();
+        if tick % 10 != 0 || self.world.settlements.is_empty() {
+            return events;
+        }
+
+        let phonemes = name_gen::load_phoneme_data();
+        let register = self.world.params.narrative_register;
+        let weirdness = self.world.params.weirdness_coefficient;
+        let temporal_rate = self.world.params.temporal_rate;
+
+        // --- BIRTHS ---
+        // For each settlement, chance of a birth proportional to how many agents are nearby.
+        // Base chance per settlement per 10-tick check: ~2% * temporal_rate, scaled by local pop.
+        let settlement_positions: Vec<(u32, u32)> = self.world.settlements.iter()
+            .map(|s| (s.x as u32, s.y as u32))
+            .collect();
+
+        // Count agents near each settlement (within 3 tiles)
+        let mut settlement_pops: Vec<u32> = vec![0; self.world.settlements.len()];
+        for agent in &self.agents {
+            if !agent.alive { continue; }
+            for (si, &(sx, sy)) in settlement_positions.iter().enumerate() {
+                let dx = (agent.x as i32 - sx as i32).unsigned_abs();
+                let dy = (agent.y as i32 - sy as i32).unsigned_abs();
+                if dx <= 3 && dy <= 3 {
+                    settlement_pops[si] += 1;
+                    break;
+                }
+            }
+        }
+
+        let alive_count = self.agents.iter().filter(|a| a.alive).count();
+        let mut births_this_tick: Vec<(String, usize, u32, u32)> = Vec::new(); // (name, people_id, x, y)
+
+        for (si, pop) in settlement_pops.iter().enumerate() {
+            if *pop == 0 { continue; }
+            // Birth chance scales with local pop and temporal_rate.
+            // ~0.3% per agent per 10 ticks at temporal_rate 1.0, capped.
+            let birth_chance = (0.003 * temporal_rate as f64 * (*pop as f64).sqrt()).min(0.15);
+            if self.rng.gen_bool(birth_chance) {
+                let people_id = if !self.world.peoples.is_empty() {
+                    self.rng.gen_range(0..self.world.peoples.len())
+                } else { 0 };
+                let name = name_gen::generate_personal_name(&phonemes,
+                    if !self.world.peoples.is_empty() { self.world.peoples[people_id].phoneme_set } else { 0 },
+                    &mut self.rng);
+                let (sx, sy) = settlement_positions[si];
+                births_this_tick.push((name, people_id, sx, sy));
+            }
+        }
+
+        for (name, people_id, sx, sy) in births_this_tick {
+            let loc_name = prose_gen::nearest_settlement_name(sx, sy, &self.world);
+            let description = prose_gen::generate_description(
+                &EventType::AgentBorn,
+                Some(&name),
+                Some(&loc_name),
+                tick,
+                &mut self.rng,
+                register,
+                weirdness,
+            );
+
+            let agent_id = self.next_agent_id;
+            self.next_agent_id += 1;
+
+            self.agents.push(Agent {
+                id: agent_id,
+                name: name.clone(),
+                people_id,
+                x: sx,
+                y: sy,
+                health: self.rng.gen_range(70..=100),
+                age: 0,
+                disposition: agent::Disposition::random(&mut self.rng),
+                current_goal: agent::Goal::Rest(self.rng.gen_range(20..=60)),
+                chronicle: Vec::new(),
+                alive: true,
+                epithets: Vec::new(),
+                last_epithet_tick: 0,
+                institution_ids: Vec::new(),
+                is_adventurer: false,
+                held_artifacts: Vec::new(),
+            });
+
+            events.push(Event {
+                tick,
+                event_type: EventType::AgentBorn,
+                subject_id: Some(agent_id),
+                location: Some((sx, sy)),
+                description,
+            });
+        }
+
+        // --- EMIGRATION ---
+        // Agents with high risk_tolerance and low institutional_loyalty are more likely to leave.
+        // Base chance per agent per 10 ticks: ~0.05% * temporal_rate, boosted by disposition.
+        // Only check a sample of agents to reduce overhead.
+        let sample_size = (alive_count / 5).max(1).min(20);
+        let mut emigration_indices: Vec<usize> = Vec::new();
+        for _ in 0..sample_size {
+            let idx = self.rng.gen_range(0..self.agents.len());
+            let agent = &self.agents[idx];
+            if !agent.alive { continue; }
+            // Wanderers and dissidents emigrate more
+            let disposition_factor = agent.disposition.risk_tolerance * 1.5
+                + (1.0 - agent.disposition.institutional_loyalty) * 0.5
+                + agent.disposition.paranoia * 0.3;
+            let emigration_chance = 0.001 * temporal_rate as f64 * disposition_factor as f64;
+            if self.rng.gen_bool(emigration_chance.min(0.05)) {
+                emigration_indices.push(idx);
+            }
+        }
+
+        for idx in emigration_indices {
+            let agent = &mut self.agents[idx];
+            if !agent.alive { continue; }
+            let agent_name = agent.display_name();
+            let agent_id = agent.id;
+            let pos = (agent.x, agent.y);
+            agent.alive = false;
+
+            let loc_name = prose_gen::nearest_settlement_name(pos.0, pos.1, &self.world);
+            let description = prose_gen::generate_emigration(
+                &agent_name,
+                &loc_name,
+                register,
+                weirdness,
+                &mut self.rng,
+            );
+
+            events.push(Event {
+                tick,
+                event_type: EventType::AgentEmigrated,
+                subject_id: Some(agent_id),
+                location: Some(pos),
+                description,
+            });
+        }
+
+        // --- IMMIGRATION ---
+        // New agents arrive from outside the known world.
+        // Base chance per 10-tick check: ~1.5% * temporal_rate.
+        let immigration_chance = 0.015 * temporal_rate as f64;
+        if self.rng.gen_bool(immigration_chance.min(0.10)) {
+            // Arrive at a border settlement (pick a random one)
+            let si = self.rng.gen_range(0..self.world.settlements.len());
+            let (sx, sy) = settlement_positions[si];
+            let people_id = if !self.world.peoples.is_empty() {
+                self.rng.gen_range(0..self.world.peoples.len())
+            } else { 0 };
+            let name = name_gen::generate_personal_name(&phonemes,
+                if !self.world.peoples.is_empty() { self.world.peoples[people_id].phoneme_set } else { 0 },
+                &mut self.rng);
+
+            let agent_id = self.next_agent_id;
+            self.next_agent_id += 1;
+
+            // Immigrants arrive as adults of varying age
+            let age = self.rng.gen_range(3650..18250); // ~10-50 years
+
+            let loc_name = prose_gen::nearest_settlement_name(sx, sy, &self.world);
+            let description = prose_gen::generate_immigration(
+                &name,
+                &loc_name,
+                register,
+                weirdness,
+                &mut self.rng,
+            );
+
+            self.agents.push(Agent {
+                id: agent_id,
+                name: name.clone(),
+                people_id,
+                x: sx,
+                y: sy,
+                health: self.rng.gen_range(50..=90),
+                age,
+                disposition: agent::Disposition::random(&mut self.rng),
+                current_goal: agent::Goal::Rest(self.rng.gen_range(10..=40)),
+                chronicle: Vec::new(),
+                alive: true,
+                epithets: Vec::new(),
+                last_epithet_tick: 0,
+                institution_ids: Vec::new(),
+                is_adventurer: self.rng.gen_bool(0.1), // small chance of arriving as adventurer
+                held_artifacts: Vec::new(),
+            });
+
+            events.push(Event {
+                tick,
+                event_type: EventType::AgentImmigrated,
+                subject_id: Some(agent_id),
+                location: Some((sx, sy)),
+                description,
+            });
+        }
+
+        events
     }
 
     /// Process institutional events for one tick.

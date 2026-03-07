@@ -110,16 +110,22 @@ impl Agent {
 
         self.age += 1;
 
-        // Die of old age at 36500 ticks (~100 years).
-        if self.age > 36500 {
-            self.alive = false;
-            actions.push(AgentAction {
-                agent_id: self.id,
-                event_type: EventType::AgentDied,
-                old_pos,
-                new_pos: old_pos,
-            });
-            return actions;
+        // Gradual mortality: chance of natural death increases with age.
+        // Starts at age ~50 years (18250 ticks), ramps up significantly past ~70 (25550).
+        // Hard cap at 36500 (~100 years).
+        if self.age > 18250 {
+            let age_factor = (self.age - 18250) as f64 / 18250.0; // 0.0 at 50yrs, 1.0 at 100yrs
+            let death_chance = 0.0002 + age_factor * age_factor * 0.005; // ramps quadratically
+            if self.age > 36500 || rng.gen_bool(death_chance.min(1.0)) {
+                self.alive = false;
+                actions.push(AgentAction {
+                    agent_id: self.id,
+                    event_type: EventType::NaturalDeath,
+                    old_pos,
+                    new_pos: old_pos,
+                });
+                return actions;
+            }
         }
 
         // Age milestone events (every ~10 years = 3650 ticks)

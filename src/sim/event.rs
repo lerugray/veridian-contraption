@@ -32,6 +32,10 @@ pub enum EventType {
     ArtifactAcquired,
     ArtifactDelivered,
     AdventurerDiedInSite,
+    // Demographic events
+    AgentEmigrated,
+    AgentImmigrated,
+    NaturalDeath,
     // Eschaton events
     EschatonFired,
 }
@@ -45,7 +49,10 @@ impl EventType {
             | EventType::AgentDied
             | EventType::AgentArrived
             | EventType::AgentDeparted
-            | EventType::AgeEvent => Color::Rgb(200, 200, 195),
+            | EventType::AgeEvent
+            | EventType::AgentEmigrated
+            | EventType::AgentImmigrated
+            | EventType::NaturalDeath => Color::Rgb(200, 200, 195),
 
             // Institutional/faction events — teal
             EventType::InstitutionFounded
@@ -88,7 +95,9 @@ impl EventType {
     pub fn category_prefix(&self) -> String {
         match self {
             EventType::AgentBorn | EventType::AgentDied | EventType::AgentArrived
-            | EventType::AgentDeparted | EventType::AgeEvent => "".to_string(),
+            | EventType::AgentDeparted | EventType::AgeEvent
+            | EventType::AgentEmigrated | EventType::AgentImmigrated
+            | EventType::NaturalDeath => "".to_string(),
 
             EventType::InstitutionFounded | EventType::InstitutionDissolved
             | EventType::SchismOccurred | EventType::DoctrineShifted
