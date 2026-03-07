@@ -2481,7 +2481,7 @@ impl SimState {
                     }
 
                     // At the site — chance of death
-                    if self.rng.gen_bool(0.03) {
+                    if self.rng.gen_bool(0.008) {
                         let agent_name = self.agents[ai].display_name();
                         let site_name = self.sites.get(site_idx)
                             .map(|s| s.name.clone()).unwrap_or_else(|| "an unnamed site".to_string());

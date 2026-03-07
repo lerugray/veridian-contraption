@@ -211,7 +211,7 @@ impl Agent {
         // Hard cap at 36500 (~100 years).
         if self.age > 18250 {
             let age_factor = (self.age - 18250) as f64 / 18250.0; // 0.0 at 50yrs, 1.0 at 100yrs
-            let death_chance = 0.0002 + age_factor * age_factor * 0.005; // ramps quadratically
+            let death_chance = 0.00005 + age_factor * age_factor * 0.002; // ramps quadratically
             if self.age > 36500 || rng.gen_bool(death_chance.min(1.0)) {
                 self.alive = false;
                 actions.push(AgentAction {

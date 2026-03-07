@@ -1,58 +1,45 @@
 # SESSION NOTES — Last updated: 2026-03-07
 
 ## Current State
-- Phase: Phase 5 COMPLETE + post-phase polish (seasons, relationships, conversations, prose repetition fixes, prose cleanup passes, suppression, grammar/article fixes)
-- Last working feature: Prose pass 3 — article doubling, trailing comma, global arrival cooldown, register grammar
-- Build status: Compiles and runs cleanly (5 warnings, all pre-existing dead_code)
+- Phase: Phase 5 COMPLETE + post-phase polish
+- Last working feature: Clinical register bleed fix + death rate tuning
+- Build status: Compiles cleanly (5 warnings, all pre-existing dead_code)
 
-## What We Did (Prose Pass 3)
-Four targeted prose fixes, no simulation logic changes:
+## What We Did This Session
+Two targeted fixes, no structural changes:
 
-### 1. Article Doubling Fix
-- Inhabitant names like "The Unnamed Occupant" or "A Former Surveyor" were getting doubled articles when templates prepended "The" — producing "The The Unnamed Occupant"
-- Added `without_leading_article()` helper that strips "The "/"A "/"An " prefix
-- Applied to the one affected template in `gen_inhabitant_ignored` (template 1)
+### 1. Clinical Register Bleed in Site Entry/Exit Prose
+- Template 7 in `gen_site_entered_indexed` and `gen_site_left_indexed` had a `match reg` block with hardcoded Clinical-specific text ("Subject X entered site Y. Ingress logged." / "Subject X exited site Y. Condition: intact.")
+- The register IS passed correctly from `self.world.params.narrative_register` (mod.rs:494), but Clinical text was firing in Bureaucratic worlds
+- Fix: Replaced the register-branching template 7 in both functions with register-adaptive templates using `pick_noun(reg, rng)` and `pick_verb(reg, rng)` helpers — these automatically produce register-appropriate vocabulary regardless of which register is active
+- Entry template 7 now: "{name} entered {site} under conditions the {noun} described as 'not entirely unprecedented.' A {noun} was {verb} accordingly."
+- Exit template 7 now: "{name} emerged from {site} bearing a {noun} that the local {noun} {verb} without comment."
 
-### 2. Trailing Comma Before Period Fix
-- `name_with_optional_clause` adds trailing comma to "Name, clause," — when placed at end of sentence before period, produced ",."
-- Added `sanitize_prose()` helper that replaces ",." with "."
-- Applied to `gen_agent_arrived` template 9 (the only template where `nwc` appears right before a period)
-
-### 3. Global Arrival/Departure Template Cooldown
-- Previously, arrival/departure suppression was per-settlement only (50-tick window)
-- "The gates admitted... in the usual manner" could fire for 3 different settlements in the same tick
-- Added `global_arrival_template_history` and `global_departure_template_history` fields to SimState
-- 12-tick global cooldown window prevents same template firing across different settlements in rapid succession
-- Per-settlement 50-tick suppression still active alongside global
-
-### 4. Register Vocabulary Grammar Fixes
-- `pick_verb(reg, rng)` returns past tense ("gathered", "carried", "scattered") but some templates needed infinitive/base form
-- Fixed 4 templates:
-  - `gen_artifact_acquired` template 3: "no one present to gathered it" — rewrote to avoid infinitive slot
-  - `gen_inhabitant_drove_out` template 2: "would later carried as 'prudent'" — rewrote to fixed prose
-  - `gen_inhabitant_questioned` template 2: "was scattered by the occupant as 'improbable'" — fixed to "dismissed"
-  - Conspiratorial `event_subordinate_clause` template 2: "interesting enough to intercepted" — fixed to "interesting enough to note"
-- Fixed seasonal template: "Several tide were filed" — "Several" + uncountable lyrical noun; changed to fixed "complaints"
+### 2. Death Rate Tuning
+- **Natural death** (agent.rs:214): Base rate reduced from `0.0002` to `0.00005`, quadratic coefficient from `0.005` to `0.002`
+  - Old: ~7% annual death rate at age 50, ~31% at age 70
+  - New: ~1.8% at age 50, ~12.7% at age 70 — much more reasonable
+  - Hard cap at age 100 (36500 ticks) unchanged
+- **Adventurer site death** (mod.rs:2484): Rate reduced from `0.03` to `0.008` per tick
+  - Old: ~78% fatality for a 50-tick site visit (most adventurers died on first expedition)
+  - New: ~33% fatality for 50-tick visit — still dangerous but survivable
+- Winter death rates left unchanged (already low and scaled by ecological_volatility)
 
 ## Files Modified This Session
-- src/gen/prose_gen.rs — `without_leading_article()` helper, `sanitize_prose()` helper, 6 template fixes
-- src/sim/mod.rs — `global_arrival_template_history` and `global_departure_template_history` fields + initialization + tick-loop logic
+- src/gen/prose_gen.rs — replaced template 7 in both `gen_site_entered_indexed` and `gen_site_left_indexed`
+- src/sim/agent.rs — reduced natural death rate constants
+- src/sim/mod.rs — reduced adventurer site death rate
 
 ## Decisions Made
-- Global arrival/departure cooldown is 12 ticks (short enough to not suppress variety, long enough to prevent same-tick repeats across settlements)
-- Per-settlement and global suppression work together: exclude = per_settle.or(global) — per-settlement takes priority since it has the longer window
-- For grammar-broken templates, preferred rewriting to fixed prose over creating a new pick_verb_infinitive() function — simpler, less risk of new bugs
-- `sanitize_prose` is a targeted wrapper, not applied globally — only used where ",." can actually occur
+- Removed register-specific branching in site templates rather than debugging the root cause of register mismatch — this eliminates the problem entirely and keeps templates register-adaptive
+- Death rate tuning is rates-only, no simulation logic changes
+- Adventurer death at 0.008/tick still makes sites meaningfully dangerous (~33% per visit) without killing most adventurers on their first expedition
 
 ## Known Issues / To Investigate
 - 5 compiler warnings (pre-existing, all dead_code)
-- All new template histories are transient (not saved/loaded) — intentional, same as weather/arrival/departure
-- **Red (death) events may be firing too frequently** — player noticed high rate in Unguided world, possibly across other profiles too. Needs investigation into death rate tuning (population balance / aging / adventurer death rates).
-- **Possible clinical register bleed in site exit prose** — player saw "Subject X exited site Y. Condition: intact. Debriefing: not conducted. taxonomic summary filed." in an Unguided world. This is `gen_site_left_indexed` template 7, Clinical branch. Need to determine: (1) was the Unguided world's register actually Clinical (in which case this is correct), or (2) is the register not being passed correctly to site prose generators? Same pattern exists in `gen_site_entered_indexed` template 7. Player should press W in-game to check world register next time this is seen.
+- All template histories are transient (not saved/loaded) — intentional
 
 ## Next Steps
-- Investigate red event frequency (death rate tuning)
-- Confirm or fix clinical register bleed in site prose for Unguided worlds
 - Further polish / new features as directed by player
 - Distribution prep when ready
 
