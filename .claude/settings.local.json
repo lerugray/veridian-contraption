@@ -9,7 +9,8 @@
       "Bash(cargo run:*)",
       "Bash(cargo test:*)",
       "Bash(wc:*)",
-      "Bash(find src:*)"
+      "Bash(find src:*)",
+      "Bash(grep:*)"
     ]
   }
 }

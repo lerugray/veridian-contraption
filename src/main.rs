@@ -545,8 +545,18 @@ fn handle_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifiers) 
         Overlay::AgentList(_) => { handle_agent_list_input(sim, key); InputResult::Continue }
         Overlay::FactionList(_) => { handle_faction_list_input(sim, key); InputResult::Continue }
         Overlay::FactionDetail(_, _) => { handle_faction_detail_input(sim, key); InputResult::Continue }
-        Overlay::Help => { if matches!(key, KeyCode::Esc | KeyCode::Char('?')) { sim.overlay = Overlay::None; } InputResult::Continue }
-        Overlay::MapLegend => { if matches!(key, KeyCode::Esc | KeyCode::Char('l')) { sim.overlay = Overlay::None; } InputResult::Continue }
+        Overlay::Help => {
+            if matches!(key, KeyCode::Esc | KeyCode::Char('?')) {
+                sim.overlay = sim.pre_overlay.take().map(|o| *o).unwrap_or(Overlay::None);
+            }
+            InputResult::Continue
+        }
+        Overlay::MapLegend => {
+            if matches!(key, KeyCode::Esc | KeyCode::Char('l')) {
+                sim.overlay = sim.pre_overlay.take().map(|o| *o).unwrap_or(Overlay::None);
+            }
+            InputResult::Continue
+        }
         Overlay::SiteList(_) => { handle_site_list_input(sim, key); InputResult::Continue }
         Overlay::WorldReport(_) => { handle_world_report_overlay_input(sim, key); InputResult::Continue }
         Overlay::SiteView(_, _) => { handle_site_view_input(sim, key); InputResult::Continue }
@@ -910,6 +920,14 @@ fn handle_site_view_input(sim: &mut SimState, key: KeyCode) {
             if sim.speed == SimSpeed::Paused {
                 sim.tick();
             }
+        }
+        KeyCode::Char('?') => {
+            sim.pre_overlay = Some(Box::new(Overlay::SiteView(site_idx, floor_idx)));
+            sim.overlay = Overlay::Help;
+        }
+        KeyCode::Char('l') => {
+            sim.pre_overlay = Some(Box::new(Overlay::SiteView(site_idx, floor_idx)));
+            sim.overlay = Overlay::MapLegend;
         }
         _ => {}
     }

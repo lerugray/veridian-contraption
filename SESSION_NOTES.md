@@ -1,48 +1,22 @@
 # SESSION NOTES — Last updated: 2026-03-06
 
 ## Current State
-- Phase: Phase 5 COMPLETE + post-phase polish (inhabitants, room purposes, faction disbanding)
-- Last working feature: Site inhabitants, inhabitant-adventurer interactions, room-purpose-aware prose, faction disbanding
+- Phase: Phase 5 COMPLETE + post-phase polish
+- Last working feature: Help and legend overlays now work in site view
 - Build status: Compiles and runs cleanly (5 warnings, all pre-existing dead_code)
 - Tests: All passing
 
 ## What We Did
-- Added permanent site inhabitants (2-8 per site, generated at world creation)
-  - `SiteInhabitant` struct in `site.rs` with name, description, glyph, floor, position
-  - Inhabitants generated in `dungeon_gen.rs` with kind-specific names/descriptions/glyphs
-  - Inhabitant types by site kind: creature (c), remnant (r), shrine attendant (s), bureaucrat (b), mourner (m), taxonomic anomaly (t), abandoned staff (a)
-  - Inhabitants rendered as lowercase letters in lavender (180, 160, 200) in the site view
-  - Inhabitant count shown in site list overlay
-  - Site inhabitants added to map legend
-
-- Added inhabitant-adventurer interaction system
-  - New `InhabitantInteraction` event type with rust-colored log entries and ⌂ prefix
-  - Every 5 ticks, 15% chance per agent at a site of interacting with a random inhabitant
-  - Four interaction outcomes: ignored, questioned, assisted, driven out
-  - Each outcome has 6 prose variants, all in the game's bureaucratic register
-  - Interactions recorded in site history
-
-- Incorporated room purposes into prose generation
-  - New `generate_site_description_with_room()` function wraps the original with optional room purpose
-  - Site entry/exit events now pick a room purpose from the agent's assigned room
-  - Room purpose clauses for all 6 types (Storage, Ritual, Administrative, Habitation, Trophy, Disputed)
-  - ~40% chance of appending room context to site entry/exit prose
-  - Inhabitant interactions also reference room purpose ~35% of the time
-
-- Added faction disbanding
-  - Factions with 0 members AND power < 5 are now disbanded (not just dissolved)
-  - New `FactionDisbanded` event type (teal-colored, ◆ prefix)
-  - Dedicated prose generator with 8 variants, register-sensitive
-  - Faction chronicle records the disbanding with tick number
-  - Factions with 0 members but power >= 5 still dissolve with existing prose
-  - FactionDisbanded counts as a major event for era tracking
+- Fixed help (?) and legend (l) keybindings not responding when viewing a site floor plan
+  - Added `pre_overlay` field (`Option<Box<Overlay>>`) to SimState to track the overlay to return to
+  - `handle_site_view_input` in main.rs now handles `?` and `l`, saving the SiteView state to `pre_overlay`
+  - Help and MapLegend close handlers restore from `pre_overlay` if set, otherwise return to Overlay::None
+  - Layout rendering checks `pre_overlay` so the site floor plan stays visible behind Help/MapLegend overlays
+  - Status bar also checks `pre_overlay` to keep showing site info while overlays are open
 
 ## Decisions Made
-- Inhabitants are serialized with `#[serde(default)]` for backward compatibility with old saves
-- Inhabitants don't leave their site — they are permanent fixtures
-- Inhabitant glyph color is uniform lavender to distinguish from agents (@)
-- Room purpose is selected deterministically from agent_id % room_count for consistency
-- Faction disbanding threshold: 0 members AND power < 5 (not just 0 members)
+- Used `pre_overlay: Option<Box<Overlay>>` on SimState rather than modifying Overlay enum variants to carry return info — simpler, less invasive
+- `pre_overlay` is not serialized (not saved) — it's transient UI state only
 
 ## Known Issues
 - 5 compiler warnings (pre-existing, all dead_code)
@@ -64,3 +38,4 @@
 - SiteInhabitant struct lives in site.rs, generated in dungeon_gen.rs
 - Inhabitant interaction prose lives in prose_gen.rs (generate_inhabitant_interaction)
 - Room purpose clauses live in prose_gen.rs (room_purpose_clause)
+- pre_overlay field on SimState stores the overlay to return to when closing Help/MapLegend from site view

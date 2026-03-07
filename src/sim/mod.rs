@@ -220,6 +220,8 @@ pub struct SimState {
     pub frame_count: u64,
     /// Next agent ID to assign (monotonically increasing).
     pub next_agent_id: u64,
+    /// Overlay to return to when closing a transient overlay (e.g. Help opened from SiteView).
+    pub pre_overlay: Option<Box<Overlay>>,
 }
 
 impl SimState {
@@ -266,6 +268,7 @@ impl SimState {
             eschaton_flash: 0,
             frame_count: 0,
             next_agent_id,
+            pre_overlay: None,
         }
     }
 
@@ -331,6 +334,7 @@ impl SimState {
             eschaton_flash: 0,
             frame_count: 0,
             next_agent_id,
+            pre_overlay: None,
         }
     }
 

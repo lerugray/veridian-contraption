@@ -42,9 +42,21 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
         ])
         .split(chunks[0]);
 
-    // If viewing a site, draw site floor instead of world map
-    if let Overlay::SiteView(site_idx, floor_idx) = &sim.overlay {
-        draw_site_panel(frame, panels[0], sim, *site_idx, *floor_idx);
+    // If viewing a site (or an overlay opened from site view), draw site floor instead of world map
+    let site_view_info = if let Overlay::SiteView(si, fi) = &sim.overlay {
+        Some((*si, *fi))
+    } else if let Some(pre) = &sim.pre_overlay {
+        if let Overlay::SiteView(si, fi) = pre.as_ref() {
+            Some((*si, *fi))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if let Some((site_idx, floor_idx)) = site_view_info {
+        draw_site_panel(frame, panels[0], sim, site_idx, floor_idx);
     } else {
         draw_map_panel(frame, panels[0], sim);
     }
@@ -588,9 +600,16 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
         .as_deref()
         .unwrap_or("unsaved");
 
-    // Show site info if viewing a site
-    let site_hint = if let Overlay::SiteView(si, fi) = &sim.overlay {
-        if let Some(site) = sim.sites.get(*si) {
+    // Show site info if viewing a site (including when an overlay is open over site view)
+    let site_view_for_status = if let Overlay::SiteView(si, fi) = &sim.overlay {
+        Some((*si, *fi))
+    } else if let Some(pre) = &sim.pre_overlay {
+        if let Overlay::SiteView(si, fi) = pre.as_ref() { Some((*si, *fi)) } else { None }
+    } else {
+        None
+    };
+    let site_hint = if let Some((si, fi)) = site_view_for_status {
+        if let Some(site) = sim.sites.get(si) {
             format!("  |  {} (F{})", site.name, fi + 1)
         } else {
             String::new()
