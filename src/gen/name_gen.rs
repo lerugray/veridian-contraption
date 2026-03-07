@@ -545,6 +545,18 @@ pub fn generate_epithet_with_weirdness(
                 _ => "the Architecturally Defeated".to_string(),
             }
         }
+        EventType::CombatOccurred => {
+            match rng.gen_range(0..8) {
+                0 => "the Undisputed".to_string(),
+                1 => format!("Who Prevailed at {}", loc),
+                2 => "the Convincing".to_string(),
+                3 => "Whose Arguments Were Physical".to_string(),
+                4 => "the Decisive".to_string(),
+                5 => "the Uncontested".to_string(),
+                6 => "Who Resolved the Matter".to_string(),
+                _ => "the Persuasive".to_string(),
+            }
+        }
         _ => {
             // General epithets for other event types
             match rng.gen_range(0..10) {

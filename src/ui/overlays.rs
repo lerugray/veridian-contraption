@@ -6,8 +6,10 @@ use ratatui::{
     Frame,
 };
 
+use rand::SeedableRng;
 use crate::sim::SimState;
 use crate::sim::agent::Goal;
+use crate::sim::combat::{self, CombatExperienceTier, InjuryStatus};
 use crate::sim::eschaton::{ESCHATON_COOLDOWN, TENSION_THRESHOLD, COSMO_THRESHOLD};
 use crate::gen::prose_gen;
 
@@ -72,10 +74,21 @@ pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize,
                 .map(|s| s.name.as_str()).unwrap_or("unknown settlement");
             format!("Returning {} to {}", art_name, sett_name)
         }
+        Goal::SeekSettlementForHealing(idx) => {
+            if *idx < sim.world.settlements.len() {
+                format!("Seeking aid at {}", sim.world.settlements[*idx].name)
+            } else {
+                "Seeking aid (unknown settlement)".to_string()
+            }
+        }
     };
 
     let alive_str = if agent.alive { "Alive" } else { "Deceased" };
     let age_years = agent.age / 365;
+
+    // Compute inner width for word-wrapping (used by multiple sections)
+    let overlay_width = (frame.area().width as usize * 60 / 100).max(20);
+    let inner_width = overlay_width.saturating_sub(2); // subtract border columns
 
     let mut lines: Vec<Line> = vec![
         Line::from(Span::styled(
@@ -96,19 +109,31 @@ pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize,
             Span::styled(format!("{} years ({} ticks)", age_years, agent.age), Style::default().fg(Color::Gray)),
         ]),
         Line::from(vec![
-            Span::styled(" Health: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(format!("{}/100", agent.health), Style::default().fg(Color::Gray)),
-        ]),
-        Line::from(vec![
             Span::styled(" Location: ", Style::default().fg(Color::DarkGray)),
             Span::styled(format!("({}, {}) near {}", agent.x, agent.y, loc_name), Style::default().fg(Color::Gray)),
         ]),
-        Line::from(vec![
-            Span::styled(" Goal: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(&goal_str, Style::default().fg(Color::Yellow)),
-        ]),
-        Line::from(""),
     ];
+    // Goal — word-wrap since it can include long settlement/site/artifact names
+    {
+        let prefix = " Goal: ";
+        let max_goal = inner_width.saturating_sub(prefix.len()).max(1);
+        let wrapped = word_wrap(&goal_str, max_goal);
+        for (i, chunk) in wrapped.iter().enumerate() {
+            if i == 0 {
+                lines.push(Line::from(vec![
+                    Span::styled(prefix, Style::default().fg(Color::DarkGray)),
+                    Span::styled(chunk.clone(), Style::default().fg(Color::Yellow)),
+                ]));
+            } else {
+                let indent = " ".repeat(prefix.len());
+                lines.push(Line::from(vec![
+                    Span::styled(indent, Style::default()),
+                    Span::styled(chunk.clone(), Style::default().fg(Color::Yellow)),
+                ]));
+            }
+        }
+    }
+    lines.push(Line::from(""));
 
     // Epithets section (if any)
     if !agent.epithets.is_empty() {
@@ -155,14 +180,16 @@ pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize,
                 2 => " ++",
                 _ => " +++",
             };
-            lines.push(Line::from(vec![
-                Span::styled("  ", Style::default()),
-                Span::styled(other_name, Style::default().fg(Color::Cyan)),
-                Span::styled(
-                    format!(" — {}{}", rel.kind.label(), intensity_str),
+            let rel_text = format!("{} — {}{}", other_name, rel.kind.label(), intensity_str);
+            let max_rel = inner_width.saturating_sub(2).max(1); // 2 for "  " indent
+            let wrapped = word_wrap(&rel_text, max_rel);
+            for (i, chunk) in wrapped.iter().enumerate() {
+                let indent = if i == 0 { "  " } else { "    " };
+                lines.push(Line::from(Span::styled(
+                    format!("{}{}", indent, chunk),
                     Style::default().fg(rel.kind.display_color()),
-                ),
-            ]));
+                )));
+            }
         }
     }
 
@@ -171,33 +198,83 @@ pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize,
     if !recent_convos.is_empty() {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(" CONVERSATIONS", Style::default().fg(Color::White))));
+        let conv_indent = "    ";
+        let max_conv = inner_width.saturating_sub(conv_indent.len()).max(1);
         for conv in &recent_convos {
             let other_name = sim.agents.iter()
                 .find(|a| a.id == conv.other_id)
                 .map(|a| a.display_name())
                 .unwrap_or_else(|| "unknown".to_string());
             let tone_color = conv.tone.display_color();
-            // Header: tick, other name, tone
-            lines.push(Line::from(vec![
-                Span::styled(format!("  [{}] ", conv.tick), Style::default().fg(Color::DarkGray)),
-                Span::styled(other_name, Style::default().fg(Color::Cyan)),
-                Span::styled(format!(" ({})", conv.tone.label()), Style::default().fg(tone_color)),
-            ]));
-            // Lines of conversation
-            lines.push(Line::from(Span::styled(
-                format!("    {}", conv.line_a),
-                Style::default().fg(tone_color),
-            )));
-            lines.push(Line::from(Span::styled(
-                format!("    {}", conv.line_b),
-                Style::default().fg(tone_color),
-            )));
+            // Header: tick, other name, tone — word-wrap as single string
+            let header = format!("[{}] {} ({})", conv.tick, other_name, conv.tone.label());
+            let max_header = inner_width.saturating_sub(2).max(1);
+            let wrapped_header = word_wrap(&header, max_header);
+            for (i, chunk) in wrapped_header.iter().enumerate() {
+                let indent = if i == 0 { "  " } else { "    " };
+                lines.push(Line::from(Span::styled(
+                    format!("{}{}", indent, chunk),
+                    Style::default().fg(Color::DarkGray),
+                )));
+            }
+            // Lines of conversation — word-wrap each
+            for line_text in &[&conv.line_a, &conv.line_b] {
+                let wrapped = word_wrap(line_text, max_conv);
+                for (i, chunk) in wrapped.iter().enumerate() {
+                    let indent = if i == 0 { conv_indent } else { "      " };
+                    lines.push(Line::from(Span::styled(
+                        format!("{}{}", indent, chunk),
+                        Style::default().fg(tone_color),
+                    )));
+                }
+            }
         }
     }
 
     // Adventurer flag
     if agent.is_adventurer {
         lines.push(Line::from(Span::styled(" ADVENTURER", Style::default().fg(Color::LightYellow))));
+    }
+
+    // Condition (injury + experience, prose only)
+    {
+        let mut rng_copy = rand::rngs::StdRng::seed_from_u64(agent.id.wrapping_add(sim.world.tick / 100));
+        let injury_text = combat::injury_prose(
+            agent.injury,
+            agent.recovery_remaining,
+            Some(&loc_name),
+            &mut rng_copy,
+        );
+        let exp_tier = CombatExperienceTier::from_count(agent.combats_survived);
+        let exp_text = exp_tier.prose_description(&mut rng_copy);
+
+        if injury_text.is_some() || exp_text.is_some() {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(" CONDITION", Style::default().fg(Color::White))));
+            let max_cond = inner_width.saturating_sub(2).max(1); // 2 for "  " indent
+            if let Some(text) = injury_text {
+                let color = match agent.injury {
+                    InjuryStatus::GravelyWounded => Color::Rgb(220, 80, 80),
+                    InjuryStatus::Wounded => Color::Rgb(220, 160, 80),
+                    InjuryStatus::Bruised => Color::Rgb(200, 200, 140),
+                    InjuryStatus::Uninjured => Color::Gray,
+                };
+                for (i, chunk) in word_wrap(&text, max_cond).iter().enumerate() {
+                    let indent = if i == 0 { "  " } else { "    " };
+                    lines.push(Line::from(Span::styled(
+                        format!("{}{}", indent, chunk), Style::default().fg(color),
+                    )));
+                }
+            }
+            if let Some(text) = exp_text {
+                for (i, chunk) in word_wrap(text, max_cond).iter().enumerate() {
+                    let indent = if i == 0 { "  " } else { "    " };
+                    lines.push(Line::from(Span::styled(
+                        format!("{}{}", indent, chunk), Style::default().fg(Color::Rgb(180, 160, 200)),
+                    )));
+                }
+            }
+        }
     }
 
     // Held artifacts
@@ -248,10 +325,6 @@ pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize,
     } else {
         &agent_events
     };
-
-    // Available width for chronicle text: overlay is 60% of screen, minus 2 for borders
-    let overlay_width = (frame.area().width as usize * 60 / 100).max(20);
-    let inner_width = overlay_width.saturating_sub(2); // subtract border columns
 
     if recent.is_empty() {
         lines.push(Line::from(Span::styled("  No notable events recorded.", Style::default().fg(Color::DarkGray))));

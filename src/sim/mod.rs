@@ -5,6 +5,7 @@ pub mod institution;
 pub mod site;
 pub mod artifact;
 pub mod eschaton;
+pub mod combat;
 
 use std::collections::HashMap;
 use rand::rngs::StdRng;
@@ -249,6 +250,8 @@ pub struct SimState {
     /// Per-settlement last-census-mention tick, for suppressing census-referencing templates
     /// from different event types at the same settlement.
     census_mention_cooldown: HashMap<usize, u64>,
+    /// Global combat template suppression: (last_template_id, tick).
+    combat_template_history: Option<(u8, u64)>,
 }
 
 impl SimState {
@@ -307,6 +310,7 @@ impl SimState {
             room_desc_template_history: None,
             census_template_history: None,
             census_mention_cooldown: HashMap::new(),
+            combat_template_history: None,
         }
     }
 
@@ -389,6 +393,7 @@ impl SimState {
             room_desc_template_history: None,
             census_template_history: None,
             census_mention_cooldown: HashMap::new(),
+            combat_template_history: None,
         }
     }
 
@@ -806,6 +811,10 @@ impl SimState {
         let mut inst_events = self.process_institutional_tick(tick);
         new_events.append(&mut inst_events);
 
+        // --- Combat simulation ---
+        let mut combat_events = self.process_combat_tick(tick);
+        new_events.append(&mut combat_events);
+
         // --- Relationship simulation ---
         let mut rel_events = self.process_relationship_tick(tick);
         new_events.append(&mut rel_events);
@@ -857,6 +866,7 @@ impl SimState {
                     | EventType::ArtifactDelivered
                     | EventType::AdventurerDiedInSite
                     | EventType::FactionDisbanded
+                    | EventType::CombatOccurred
                     | EventType::EschatonFired
             );
             if is_major {
@@ -901,6 +911,7 @@ impl SimState {
                 EventType::SchismOccurred => self.tension += 0.03,
                 EventType::RivalryDeclared | EventType::AllianceStrained => self.tension += 0.02,
                 EventType::AdventurerDiedInSite => self.tension += 0.01,
+                EventType::CombatOccurred => self.tension += 0.02,
                 _ => {}
             }
         }
@@ -1245,6 +1256,10 @@ impl SimState {
                 held_artifacts: Vec::new(),
                 relationships: Vec::new(),
             conversations: Vec::new(),
+            injury: crate::sim::combat::InjuryStatus::Uninjured,
+            recovery_remaining: 0,
+            combats_survived: 0,
+            last_combat_tick: 0,
             });
 
             events.push(Event {
@@ -1389,6 +1404,10 @@ impl SimState {
                 held_artifacts: Vec::new(),
                 relationships: Vec::new(),
             conversations: Vec::new(),
+            injury: crate::sim::combat::InjuryStatus::Uninjured,
+            recovery_remaining: 0,
+            combats_survived: 0,
+            last_combat_tick: 0,
             });
 
             events.push(Event {
@@ -1930,6 +1949,211 @@ impl SimState {
             location: Some((self.agents[ai].x, self.agents[ai].y)),
             description,
         })
+    }
+
+    /// Process combat encounters between agents on the same tile.
+    /// Checks for eligible combatant pairs and resolves fights.
+    fn process_combat_tick(&mut self, tick: u64) -> Vec<Event> {
+        use crate::sim::combat::{self, InjuryStatus};
+        use crate::sim::agent::RelationshipKind;
+
+        let mut events = Vec::new();
+
+        // Only process every 5 ticks to reduce overhead
+        if tick % 5 != 0 {
+            return events;
+        }
+
+        let register = self.world.params.narrative_register;
+        let weirdness = self.world.params.weirdness_coefficient;
+
+        // Build list of alive agents with positions, grouped by tile
+        let mut tile_agents: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
+        for (i, agent) in self.agents.iter().enumerate() {
+            if !agent.alive { continue; }
+            // Skip agents who fought recently (20-tick cooldown)
+            if tick.saturating_sub(agent.last_combat_tick) < 20 { continue; }
+            tile_agents.entry((agent.x, agent.y)).or_default().push(i);
+        }
+
+        // Collect combat pairs: (agent_idx_a, agent_idx_b, probability)
+        let mut combat_pairs: Vec<(usize, usize, f64)> = Vec::new();
+
+        for (_tile, agents_on_tile) in &tile_agents {
+            if agents_on_tile.len() < 2 { continue; }
+
+            for i in 0..agents_on_tile.len() {
+                for j in (i + 1)..agents_on_tile.len() {
+                    let ai = agents_on_tile[i];
+                    let bi = agents_on_tile[j];
+                    let a = &self.agents[ai];
+                    let b = &self.agents[bi];
+
+                    // Check trigger conditions and compute probability
+
+                    // 1. Rivals sharing a tile — highest probability
+                    let rivalry = a.relationships.iter()
+                        .find(|r| r.other_id == b.id && r.kind == RelationshipKind::Rival);
+                    if let Some(rel) = rivalry {
+                        let prob = 0.01 * rel.intensity as f64; // 1-3% per check
+                        combat_pairs.push((ai, bi, prob));
+                        continue;
+                    }
+
+                    // 2. Opposing faction members — lower probability
+                    if !a.institution_ids.is_empty() && !b.institution_ids.is_empty() {
+                        let share_faction = a.institution_ids.iter()
+                            .any(|id| b.institution_ids.contains(id));
+                        if !share_faction {
+                            // Check if their factions are rivals
+                            let faction_rivalry = self.institutions.iter()
+                                .any(|inst| {
+                                    a.institution_ids.contains(&inst.id)
+                                    && inst.relationships.iter().any(|(other_id, rel)| {
+                                        b.institution_ids.contains(other_id)
+                                        && matches!(rel, crate::sim::institution::InstitutionRelationship::Rival)
+                                    })
+                                });
+                            if faction_rivalry {
+                                combat_pairs.push((ai, bi, 0.005));
+                                continue;
+                            }
+                        }
+                    }
+
+                    // 3. High risk tolerance + low institutional loyalty — occasional aggression
+                    let a_volatile = a.disposition.risk_tolerance > 0.8
+                        && a.disposition.institutional_loyalty < 0.3;
+                    let b_volatile = b.disposition.risk_tolerance > 0.8
+                        && b.disposition.institutional_loyalty < 0.3;
+                    if a_volatile || b_volatile {
+                        combat_pairs.push((ai, bi, 0.002));
+                    }
+                }
+            }
+        }
+
+        // Resolve combats (limit to 2 per tick to prevent spam)
+        let mut resolved_count = 0;
+        for (ai, bi, prob) in &combat_pairs {
+            if resolved_count >= 2 { break; }
+            if !self.rng.gen_bool((*prob).min(0.05)) { continue; }
+
+            let a = &self.agents[*ai];
+            let b = &self.agents[*bi];
+
+            // Check both are still alive and not recently fought
+            if !a.alive || !b.alive { continue; }
+            if tick.saturating_sub(a.last_combat_tick) < 20 { continue; }
+            if tick.saturating_sub(b.last_combat_tick) < 20 { continue; }
+
+            let weight_a = combat::combat_weight(
+                a.disposition.risk_tolerance, a.age, a.combats_survived, a.injury,
+            );
+            let weight_b = combat::combat_weight(
+                b.disposition.risk_tolerance, b.age, b.combats_survived, b.injury,
+            );
+
+            let result = combat::resolve_combat(a.id, weight_a, b.id, weight_b, &mut self.rng);
+
+            // Determine if this combat is notable enough to log
+            let a_notable = a.epithets.len() >= 1 || a.institution_ids.len() >= 2;
+            let b_notable = b.epithets.len() >= 1 || b.institution_ids.len() >= 2;
+            let should_log = a_notable || b_notable;
+
+            // Apply results to agents
+            let pos = (a.x, a.y);
+            let loc_name = prose_gen::nearest_settlement_name(pos.0, pos.1, &self.world);
+
+            // Find winner/loser indices
+            let (winner_idx, loser_idx) = if result.winner_id == a.id {
+                (*ai, *bi)
+            } else {
+                (*bi, *ai)
+            };
+
+            // Apply injuries to winner
+            let winner = &mut self.agents[winner_idx];
+            if result.winner_injury as u8 > winner.injury as u8 {
+                winner.injury = result.winner_injury;
+                winner.recovery_remaining = result.winner_injury.recovery_ticks();
+            }
+            winner.combats_survived += 1;
+            winner.last_combat_tick = tick;
+
+            // Apply injuries to loser
+            let loser = &mut self.agents[loser_idx];
+            if result.loser_injury as u8 > loser.injury as u8 {
+                loser.injury = result.loser_injury;
+                loser.recovery_remaining = result.loser_injury.recovery_ticks();
+            }
+            loser.combats_survived += 1;
+            loser.last_combat_tick = tick;
+
+            // Gravely wounded: seek settlement (unless very loyal and lucky)
+            if loser.injury == InjuryStatus::GravelyWounded {
+                let persists = loser.disposition.institutional_loyalty > 0.9
+                    && self.rng.gen_bool(0.1); // ~10% of top-loyalty agents persist
+                if !persists {
+                    // Find nearest settlement
+                    let settlement_positions: Vec<(u32, u32)> = self.world.settlements.iter()
+                        .map(|s| (s.x as u32, s.y as u32)).collect();
+                    if let Some((nearest_idx, _)) = settlement_positions.iter().enumerate()
+                        .min_by_key(|(_, &(sx, sy))| {
+                            let dx = loser.x as i32 - sx as i32;
+                            let dy = loser.y as i32 - sy as i32;
+                            dx * dx + dy * dy
+                        })
+                    {
+                        loser.current_goal = agent::Goal::SeekSettlementForHealing(nearest_idx);
+                    }
+                }
+            } else if loser.injury == InjuryStatus::Wounded {
+                // Wounded: seek settlement after current goal completes (set flag)
+                // We handle this by checking in maybe_change_goal
+            }
+
+            // Generate log event if notable
+            if should_log {
+                let winner_name = self.agents[winner_idx].display_name();
+                let loser_name = self.agents[loser_idx].display_name();
+
+                // Compute site name if agents are at a site
+                let site_name = self.sites.iter()
+                    .find(|s| s.grid_x == pos.0 && s.grid_y == pos.1)
+                    .map(|s| s.name.as_str());
+
+                let location_str = site_name.unwrap_or(&loc_name);
+
+                let exclude = self.combat_template_history
+                    .and_then(|(tmpl, t)| if tick.saturating_sub(t) < 30 { Some(tmpl) } else { None });
+
+                let (tmpl_idx, description) = prose_gen::gen_combat_indexed(
+                    &winner_name,
+                    &loser_name,
+                    location_str,
+                    result.is_draw,
+                    result.loser_injury,
+                    register,
+                    weirdness,
+                    &mut self.rng,
+                    exclude,
+                );
+                self.combat_template_history = Some((tmpl_idx, tick));
+
+                events.push(Event {
+                    tick,
+                    event_type: EventType::CombatOccurred,
+                    subject_id: Some(result.winner_id),
+                    location: Some(pos),
+                    description,
+                });
+            }
+
+            resolved_count += 1;
+        }
+
+        events
     }
 
     /// Process relationship formation, evolution, and behavioral effects.

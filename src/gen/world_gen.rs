@@ -155,6 +155,10 @@ pub fn generate_world(seed: u64, flavor: WorldFlavor) -> (World, Vec<Agent>, Vec
             held_artifacts: Vec::new(),
             relationships: Vec::new(),
             conversations: Vec::new(),
+            injury: crate::sim::combat::InjuryStatus::Uninjured,
+            recovery_remaining: 0,
+            combats_survived: 0,
+            last_combat_tick: 0,
         });
     }
 
@@ -427,6 +431,10 @@ fn generate_agents(
             held_artifacts: Vec::new(),
             relationships: Vec::new(),
             conversations: Vec::new(),
+            injury: crate::sim::combat::InjuryStatus::Uninjured,
+            recovery_remaining: 0,
+            combats_survived: 0,
+            last_combat_tick: 0,
         });
     }
 

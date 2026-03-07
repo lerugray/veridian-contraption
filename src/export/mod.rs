@@ -172,7 +172,13 @@ pub fn export_character_chronicle(sim: &SimState, prefix: &str) -> Result<String
         };
 
         writeln!(file, "  {}", agent.display_name())?;
-        writeln!(file, "  People: {}  |  Age: {} years  |  Health: {}/100", people_name, agent.age / 365, agent.health)?;
+        let condition = match agent.injury {
+            crate::sim::combat::InjuryStatus::Uninjured => "Uninjured",
+            crate::sim::combat::InjuryStatus::Bruised => "Bruised",
+            crate::sim::combat::InjuryStatus::Wounded => "Wounded",
+            crate::sim::combat::InjuryStatus::GravelyWounded => "Gravely Wounded",
+        };
+        writeln!(file, "  People: {}  |  Age: {} years  |  Condition: {}", people_name, agent.age / 365, condition)?;
         writeln!(file, "  Location: ({}, {})", agent.x, agent.y)?;
 
         if !agent.epithets.is_empty() {

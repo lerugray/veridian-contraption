@@ -1,6 +1,7 @@
 use rand::rngs::StdRng;
 use rand::Rng;
 
+use crate::sim::combat::InjuryStatus;
 use crate::sim::event::EventType;
 use crate::sim::world::{NarrativeRegister, World};
 
@@ -437,6 +438,8 @@ pub fn generate_description(
             format!("{} has had a change in personal associations near {}.", name, loc),
         EventType::ConversationOccurred =>
             format!("{} was involved in a conversation of note near {}.", name, loc),
+        EventType::CombatOccurred =>
+            format!("{} was involved in a physical altercation near {}.", name, loc),
     }
 }
 
@@ -1914,4 +1917,122 @@ pub fn generate_conversation(
             ),
         },
     }
+}
+
+/// Generate combat prose with template suppression.
+/// Returns (template_index, prose_text).
+pub fn gen_combat_indexed(
+    winner: &str,
+    loser: &str,
+    location: &str,
+    is_draw: bool,
+    loser_injury: InjuryStatus,
+    reg: NarrativeRegister,
+    w: f32,
+    rng: &mut StdRng,
+    exclude: Option<u8>,
+) -> (u8, String) {
+    let verb = pick_verb(reg, rng);
+    let noun = pick_noun(reg, rng);
+    let cause = pick_cause(w, rng);
+
+    let total_templates = 10u8;
+    let mut idx = rng.gen_range(0..total_templates);
+    if let Some(ex) = exclude {
+        if idx == ex {
+            idx = rng.gen_range(0..total_templates);
+        }
+    }
+
+    let text = if is_draw {
+        match idx % 4 {
+            0 => format!(
+                "{} and {} met in {}. The encounter was {} and its outcome was not disputed, largely because there was no outcome to dispute.",
+                winner, loser, location, verb
+            ),
+            1 => format!(
+                "A disagreement between {} and {} in {} resolved itself through mutual exhaustion rather than decisive action.",
+                winner, loser, location
+            ),
+            2 => format!(
+                "The matter between {} and {} in {} was {}, in the sense that neither party achieved anything resembling victory.",
+                winner, loser, location, verb
+            ),
+            _ => format!(
+                "{} and {} engaged one another near {}. The {} characterized the encounter as 'inconclusive,' which was diplomatic.",
+                winner, loser, location, noun
+            ),
+        }
+    } else {
+        let injury_clause = match loser_injury {
+            InjuryStatus::GravelyWounded => {
+                let opts = [
+                    format!("{} sustained injuries that the local office classified as 'significant but survivable.'", loser),
+                    format!("{} was carried from the scene in a condition the attending clerk described as 'of administrative concern.'", loser),
+                    format!("The injuries sustained by {} were severe enough to require formal documentation.", loser),
+                ];
+                opts[rng.gen_range(0..opts.len())].clone()
+            }
+            InjuryStatus::Wounded => {
+                let opts = [
+                    format!("{} departed the encounter with injuries of some note.", loser),
+                    format!("{} was {} to have sustained wounds requiring attention.", loser, verb),
+                    format!("The condition of {} following the encounter was {} as 'diminished.'", loser, verb),
+                ];
+                opts[rng.gen_range(0..opts.len())].clone()
+            }
+            _ => String::new(),
+        };
+
+        match idx {
+            0 => {
+                let base = format!(
+                    "{} and {} met in {}. The encounter was brief and its outcome was not disputed.",
+                    winner, loser, location
+                );
+                if injury_clause.is_empty() { base } else { format!("{} {}", base, injury_clause) }
+            }
+            1 => format!(
+                "The matter between {} and the entity designated {} was resolved in {}, in the sense that only one of them left under their own power. {}",
+                winner, loser, location, injury_clause
+            ),
+            2 => format!(
+                "A physical disagreement in {} between {} and {} was {} by the local {}, though the resolution had by that point already been achieved through other means. {}",
+                location, winner, loser, verb, noun, injury_clause
+            ),
+            3 => format!(
+                "{} encountered {} in {} under circumstances the {} has declined to elaborate on. The outcome favored {}. {}",
+                winner, loser, location, noun, winner, injury_clause
+            ),
+            4 => format!(
+                "In {}, {} and {} tested one another's convictions through means the registrar classified as 'extrajudicial.' {} prevailed. {}",
+                location, winner, loser, winner, injury_clause
+            ),
+            5 => {
+                let base = format!(
+                    "{} met {} in {} and {} the encounter with characteristic efficiency.",
+                    winner, loser, location, verb
+                );
+                if injury_clause.is_empty() { base } else { format!("{} {}", base, injury_clause) }
+            }
+            6 => format!(
+                "The confrontation between {} and {} in {} was {} to its natural conclusion. The {} records the outcome but not the duration. {}",
+                winner, loser, location, verb, noun, injury_clause
+            ),
+            7 => format!(
+                "{} and {} disputed a matter in {} that could not be resolved through {} alone. {} was found to have the more persuasive argument. {}",
+                winner, loser, location, noun, winner, injury_clause
+            ),
+            8 => format!(
+                "An altercation in {} involving {} and {} was {} by due to {}. The former emerged in better condition. {}",
+                location, winner, loser, verb, cause, injury_clause
+            ),
+            _ => format!(
+                "The {} between {} and {} near {} concluded in a manner that required no further adjudication. {}",
+                noun, winner, loser, location, injury_clause
+            ),
+        }
+    };
+
+    (idx, sanitize_prose(text))
 }

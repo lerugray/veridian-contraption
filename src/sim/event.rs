@@ -47,6 +47,8 @@ pub enum EventType {
     ConversationOccurred,
     // Seasonal events
     SeasonalTransition,
+    // Combat events
+    CombatOccurred,
     // Eschaton events
     EschatonFired,
 }
@@ -82,6 +84,9 @@ impl EventType {
             EventType::AllianceFormed
             | EventType::AllianceStrained
             | EventType::RivalryDeclared => Color::Rgb(220, 200, 100),
+
+            // Combat events — crimson-orange
+            EventType::CombatOccurred => Color::Rgb(220, 120, 80),
 
             // Environmental events — spring green
             EventType::WeatherEvent
@@ -125,7 +130,8 @@ impl EventType {
             | EventType::FactionDisbanded => "\u{25C6} ".to_string(), // ◆
 
             EventType::AllianceFormed | EventType::AllianceStrained
-            | EventType::RivalryDeclared => "\u{2694} ".to_string(), // ⚔ (crossed swords — political)
+            | EventType::RivalryDeclared
+            | EventType::CombatOccurred => "\u{2694} ".to_string(), // ⚔ (crossed swords — political/combat)
 
             EventType::WeatherEvent | EventType::SettlementGrew
             | EventType::SettlementShrank

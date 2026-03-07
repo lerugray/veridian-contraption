@@ -740,6 +740,10 @@ pub fn execute_arrival(
             held_artifacts: Vec::new(),
             relationships: Vec::new(),
             conversations: Vec::new(),
+            injury: crate::sim::combat::InjuryStatus::Uninjured,
+            recovery_remaining: 0,
+            combats_survived: 0,
+            last_combat_tick: 0,
         };
         agents.push(agent);
         id += 1;

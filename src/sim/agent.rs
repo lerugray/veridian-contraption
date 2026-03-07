@@ -2,6 +2,7 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
+use crate::sim::combat::InjuryStatus;
 use crate::sim::event::EventType;
 use crate::sim::world::{MAP_HEIGHT, MAP_WIDTH, Terrain};
 
@@ -139,6 +140,8 @@ pub enum Goal {
     AcquireArtifact(u64, usize),
     /// Returning an artifact to a settlement (artifact id, settlement index).
     ReturnArtifact(u64, usize),
+    /// Seeking nearest settlement to recover from wounds (settlement index).
+    SeekSettlementForHealing(usize),
 }
 
 /// An action result returned from Agent::act() to be turned into events by the sim.
@@ -185,6 +188,18 @@ pub struct Agent {
     /// Recent conversations with other agents (capped at 20).
     #[serde(default)]
     pub conversations: Vec<Conversation>,
+    /// Current injury status from combat.
+    #[serde(default)]
+    pub injury: InjuryStatus,
+    /// Ticks remaining until injury is fully healed.
+    #[serde(default)]
+    pub recovery_remaining: u32,
+    /// Total combats survived (drives experience tier).
+    #[serde(default)]
+    pub combats_survived: u16,
+    /// Tick of last combat (prevents rapid re-engagement).
+    #[serde(default)]
+    pub last_combat_tick: u64,
 }
 
 impl Agent {
@@ -205,6 +220,29 @@ impl Agent {
         let old_pos = (self.x, self.y);
 
         self.age += 1;
+
+        // --- Injury recovery ---
+        if self.recovery_remaining > 0 {
+            self.recovery_remaining -= 1;
+            if self.recovery_remaining == 0 {
+                self.injury = InjuryStatus::Uninjured;
+            }
+        }
+
+        // --- Gravely wounded death chance (each tick, until at settlement) ---
+        if self.injury == InjuryStatus::GravelyWounded {
+            let at_settlement = settlements.iter().any(|&(sx, sy)| self.x == sx && self.y == sy);
+            if !at_settlement && rng.gen_bool(0.003) {
+                self.alive = false;
+                actions.push(AgentAction {
+                    agent_id: self.id,
+                    event_type: EventType::AgentDied,
+                    old_pos,
+                    new_pos: old_pos,
+                });
+                return actions;
+            }
+        }
 
         // Gradual mortality: chance of natural death increases with age.
         // Starts at age ~50 years (18250 ticks), ramps up significantly past ~70 (25550).
@@ -348,6 +386,33 @@ impl Agent {
                 self.wander(rng, terrain);
                 // These goals persist for a while; the sim tick handles resolution.
             }
+            Goal::SeekSettlementForHealing(idx) => {
+                let idx = *idx;
+                if idx < settlements.len() {
+                    let (sx, sy) = settlements[idx];
+                    // Wounded agents move every other tick
+                    let should_move = self.injury != InjuryStatus::Wounded || self.age % 2 == 0;
+                    if should_move {
+                        self.move_toward(sx, sy, terrain);
+                    }
+                    // Arrived at settlement?
+                    if self.x == sx && self.y == sy {
+                        if old_pos.0 != sx || old_pos.1 != sy {
+                            actions.push(AgentAction {
+                                agent_id: self.id,
+                                event_type: EventType::AgentArrived,
+                                old_pos,
+                                new_pos: (self.x, self.y),
+                            });
+                        }
+                        // Start recovering: rest until healed
+                        let rest_ticks = self.recovery_remaining.max(20);
+                        self.current_goal = Goal::Rest(rest_ticks);
+                    }
+                } else {
+                    self.current_goal = Goal::Wander;
+                }
+            }
         }
 
         actions
@@ -385,6 +450,20 @@ impl Agent {
 
     /// Possibly switch to a new goal based on disposition weights.
     pub fn maybe_change_goal(&mut self, rng: &mut StdRng, settlements: &[(u32, u32)], site_positions: &[(u32, u32)]) {
+        // Wounded agents seek settlement for healing after completing their current goal
+        if self.injury == InjuryStatus::Wounded && !settlements.is_empty() {
+            if let Some((nearest_idx, _)) = settlements.iter().enumerate()
+                .min_by_key(|(_, &(sx, sy))| {
+                    let dx = self.x as i32 - sx as i32;
+                    let dy = self.y as i32 - sy as i32;
+                    dx * dx + dy * dy
+                })
+            {
+                self.current_goal = Goal::SeekSettlementForHealing(nearest_idx);
+                return;
+            }
+        }
+
         let roll: f32 = rng.gen();
 
         // High-ambition agents with no institution may try to found one
