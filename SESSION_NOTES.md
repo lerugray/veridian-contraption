@@ -1,47 +1,49 @@
-# SESSION NOTES — Last updated: 2026-03-06
+# SESSION NOTES — Last updated: 2026-03-07
 
 ## Current State
-- Phase: Phase 5 COMPLETE + post-phase polish (seasons, relationships, conversations, prose repetition fixes, prose cleanup pass)
-- Last working feature: Prose cleanup pass — departure/arrival suppression, verb fix, double comma fix
+- Phase: Phase 5 COMPLETE + post-phase polish (seasons, relationships, conversations, prose repetition fixes, prose cleanup pass, suppression pass)
+- Last working feature: Near-duplicate suppression for site descriptions, site exits, room descriptions, and census variants
 - Build status: Compiles and runs cleanly (5 warnings, all pre-existing dead_code)
 
 ## What We Did
-Prose cleanup pass targeting three specific issues in prose_gen.rs and sim/mod.rs:
+Targeted suppression fixes to reduce remaining prose repetition, no simulation logic changes:
 
-### 1. Departure/Arrival Near-Duplicate Suppression
-- Added `gen_agent_arrived_indexed()` and `gen_agent_departed_indexed()` public functions (same pattern as `gen_weather_indexed()`)
-- Both return `(u8, String)` and accept optional excluded template index
-- Expanded arrival pool from 10 to 13 templates (3 new variants)
-- Expanded departure pool from 10 to 13 templates (4 new variants)
-- Added `arrival_template_history` and `departure_template_history` HashMaps to SimState
-- Wired up suppression in the agent action processing loop: finds nearest settlement index, checks history, avoids repeating same template within 50 ticks per settlement
+### 1. Room/Site Description Suppression (Global, 50-tick window)
+- Created `gen_site_entered_indexed()` and `gen_site_left_indexed()` public functions returning `(u8, String)` with optional excluded template index
+- Created `room_purpose_clause_indexed()` — encodes purpose_ordinal * 4 + sub_index for globally unique room template keys
+- Created `generate_site_description_indexed()` — wraps entry/exit/room generation, returns `(u8, Option<u8>, bool, String)` (entry_or_exit_idx, room_idx, is_exit, text)
+- Added `site_entry_template_history: Option<(u8, u64)>` to SimState — global suppression
+- Added `room_desc_template_history: Option<(u8, u64)>` to SimState — global suppression
+- Wired up in sim loop: site entry and room descriptions won't repeat the same template within 50 ticks globally
 
-### 2. Verb Substitution Fix
-- Added `NEUTRAL_RECORD_VERBS` constant: 10 verbs safe for any context ("noted", "recorded", "acknowledged", etc.)
-- Added `pick_neutral_verb()` function
-- Replaced `pick_verb(reg, rng)` with `pick_neutral_verb(rng)` in all generic (non-register-matched) weather templates (7 templates)
-- Same replacement in generic arrival templates (5 templates), departure templates (4 templates), emigration templates (2 templates), immigration templates (3 templates)
-- Register-specific variants inside `match reg` blocks left unchanged (those are handwritten for their register)
+### 2. Site Exit Suppression (Per-Site, 50-tick window)
+- Added `site_exit_template_history: HashMap<usize, (u8, u64)>` to SimState — keyed by site index (not settlement)
+- The "unhurried pace" template (and all others) won't repeat at the same site within 50 ticks, even for different agents
 
-### 3. Double Comma Fix
-- `name_with_optional_clause()` returns "Name, clause," with trailing comma
-- Found 3 templates where nwc was placed before ", " producing ",,"
-  - gen_agent_arrived template 9 (was _): restructured to split into two sentences
-  - gen_agent_immigrated template 3: switched from nwc to name, restructured sentence
-  - gen_agent_immigrated template 8: switched from nwc to name, restructured sentence
+### 3. Census Near-Duplicate Suppression
+- Created `generate_census_with_count_indexed()` returning `(u8, String)` with optional excluded template
+- Added `census_template_history: Option<(u8, u64)>` — global suppression for the periodic census report itself
+- Added `census_mention_cooldown: HashMap<usize, u64>` — per-settlement, tracks last tick any census-mentioning template fired
+- When a global census report fires, ALL settlements get marked in the cooldown map
+- For agent events (death, age, etc.), settlement growth/shrinkage, emigration, and immigration: if the generated text contains "census" and there's a recent census mention at that settlement (within 50 ticks), re-generates once to try for a non-census variant
+- If the re-generated text still contains "census," it's accepted and the cooldown is updated
+
+### 4. "The usual arrangement"
+- Searched the codebase — this phrase no longer exists. No action needed.
 
 ## Files Modified This Session
-- src/gen/prose_gen.rs — NEUTRAL_RECORD_VERBS, pick_neutral_verb(), indexed arrival/departure generators, verb substitution fixes, double comma fixes, new template variants
-- src/sim/mod.rs — arrival_template_history and departure_template_history fields on SimState, suppression logic in agent action processing
+- src/gen/prose_gen.rs — indexed versions of site_entered, site_left, room_purpose_clause, generate_census_with_count; generate_site_description_indexed wrapper; dead_code annotations on replaced wrappers
+- src/sim/mod.rs — site_entry/exit/room/census template history fields on SimState; suppression logic in site event processing, census report, settlement growth/shrink, emigration, immigration
 
 ## Decisions Made
-- Suppression uses same pattern as weather: HashMap<usize, (u8, u64)> keyed by nearest settlement index, 50-tick window
-- Neutral verb pool is intentionally small and register-agnostic — these are "filing/recording" verbs that make sense for weather and movement regardless of narrative register
-- For double comma fix, restructured sentences rather than changing name_with_optional_clause behavior (changing the function would affect every template that uses it)
+- Site entry and room description suppression is GLOBAL (single history, not per-settlement/site) because these events are rare enough that global makes sense
+- Site exit suppression is PER-SITE (keyed by site index) to prevent the same exit template firing for different agents leaving the same site
+- Census suppression uses a two-layer approach: template-level for the periodic census report, and text-contains-"census" check for all other event types that might mention census
+- Re-generation on census collision is limited to one retry (not infinite loop) — if it still hits census, accept it and update the cooldown
 
 ## Known Issues
 - 5 compiler warnings (pre-existing, all dead_code)
-- arrival/departure/weather template histories are not saved/loaded (intentional — transient suppression state)
+- All new template histories are transient (not saved/loaded) — intentional, same as weather/arrival/departure
 
 ## Next Steps
 - Further polish / new features as directed by player
@@ -56,3 +58,5 @@ Prose cleanup pass targeting three specific issues in prose_gen.rs and sim/mod.r
 - Conversations are separate from relationships — they influence relationship formation but are tracked independently
 - generate_relationship_event now takes 2 extra params (inst_a, inst_b) at the end
 - pick_neutral_verb(rng) exists for weather/movement templates; pick_verb(reg, rng) is still used in institutional/death/other templates where register-specific verbs fit
+- Suppression pattern: indexed functions return (u8, String), accept Option<u8> exclude; sim loop maintains history maps and passes excludes
+- Census suppression is text-based ("contains census") for non-census event types, not template-index-based, because census-mentioning templates are scattered across many event type pools

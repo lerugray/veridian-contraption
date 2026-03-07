@@ -762,18 +762,36 @@ fn gen_census(loc: &str, reg: NarrativeRegister, w: f32, rng: &mut StdRng) -> St
 }
 
 /// Generate a census entry that includes the actual population count.
+#[allow(dead_code)]
 pub fn generate_census_with_count(
     count: usize,
     rng: &mut StdRng,
     register: NarrativeRegister,
 ) -> String {
-    match rng.gen_range(0..5) {
+    generate_census_with_count_indexed(count, rng, register, None).1
+}
+
+/// Indexed version for near-duplicate suppression. Returns (template_index, text).
+pub fn generate_census_with_count_indexed(
+    count: usize,
+    rng: &mut StdRng,
+    register: NarrativeRegister,
+    exclude: Option<u8>,
+) -> (u8, String) {
+    let mut idx = rng.gen_range(0..5u8);
+    if let Some(ex) = exclude {
+        if idx == ex {
+            idx = rng.gen_range(0..5u8);
+        }
+    }
+    let text = match idx {
         0 => format!("The census records {} souls still accounted for. The registrar noted this figure without comment.", count),
         1 => format!("The count stood at {}. The registrar initialed the margin and moved on.", count),
         2 => format!("A population of {} was {} by the census office, a number it described as 'the current number.'", count, pick_verb(register, rng)),
         3 => format!("The enumeration yielded {}: neither cause for celebration nor alarm, according to the {} responsible for such determinations.", count, pick_noun(register, rng)),
         _ => format!("{} names occupied the register. The clerk who tallied them expressed neither satisfaction nor concern, only the faint fatigue of someone who has counted before.", count),
-    }
+    };
+    (idx, text)
 }
 
 fn gen_genesis(reg: NarrativeRegister, rng: &mut StdRng) -> String {
@@ -1062,26 +1080,63 @@ pub fn generate_site_description_with_room(
     register: NarrativeRegister,
     weirdness: f32,
 ) -> String {
-    let base = match event_type {
-        EventType::AgentEnteredSite => gen_site_entered(agent_name, site_name, register, weirdness, rng),
-        EventType::AgentLeftSite => gen_site_left(agent_name, site_name, register, weirdness, rng),
-        _ => format!("{} had dealings with {}. The nature of these dealings was not recorded.", agent_name, site_name),
+    generate_site_description_indexed(event_type, agent_name, site_name, room_purpose, rng, register, weirdness, None, None, None).3
+}
+
+/// Indexed version for near-duplicate suppression.
+/// Returns (entry_or_exit_idx, room_idx_option, is_exit, text).
+/// exclude_entry: global entry template to avoid. exclude_exit: per-site exit template to avoid.
+/// exclude_room: global room description template to avoid.
+pub fn generate_site_description_indexed(
+    event_type: &EventType,
+    agent_name: &str,
+    site_name: &str,
+    room_purpose: Option<&str>,
+    rng: &mut StdRng,
+    register: NarrativeRegister,
+    weirdness: f32,
+    exclude_entry: Option<u8>,
+    exclude_exit: Option<u8>,
+    exclude_room: Option<u8>,
+) -> (u8, Option<u8>, bool, String) {
+    let (base_idx, base, is_exit) = match event_type {
+        EventType::AgentEnteredSite => {
+            let (idx, text) = gen_site_entered_indexed(agent_name, site_name, register, weirdness, rng, exclude_entry);
+            (idx, text, false)
+        },
+        EventType::AgentLeftSite => {
+            let (idx, text) = gen_site_left_indexed(agent_name, site_name, register, weirdness, rng, exclude_exit);
+            (idx, text, true)
+        },
+        _ => (255, format!("{} had dealings with {}. The nature of these dealings was not recorded.", agent_name, site_name), false),
     };
     // Append room purpose context ~40% of the time when available
     if let Some(purpose) = room_purpose {
         if rng.gen_bool(0.4) {
-            let room_clause = room_purpose_clause(purpose, register, rng);
-            format!("{} {}", base, room_clause)
+            let (room_idx, room_clause) = room_purpose_clause_indexed(purpose, register, rng, exclude_room);
+            (base_idx, Some(room_idx), is_exit, format!("{} {}", base, room_clause))
         } else {
-            base
+            (base_idx, None, is_exit, base)
         }
     } else {
-        base
+        (base_idx, None, is_exit, base)
     }
 }
 
+#[allow(dead_code)]
 fn gen_site_entered(name: &str, site: &str, reg: NarrativeRegister, w: f32, rng: &mut StdRng) -> String {
-    match rng.gen_range(0..10) {
+    gen_site_entered_indexed(name, site, reg, w, rng, None).1
+}
+
+/// Indexed version for near-duplicate suppression. Returns (template_index, text).
+pub fn gen_site_entered_indexed(name: &str, site: &str, reg: NarrativeRegister, w: f32, rng: &mut StdRng, exclude: Option<u8>) -> (u8, String) {
+    let mut idx = rng.gen_range(0..10u8);
+    if let Some(ex) = exclude {
+        if idx == ex {
+            idx = rng.gen_range(0..10u8);
+        }
+    }
+    let text = match idx {
         0 => format!("{} entered {}, having filed no advance notice with the relevant authorities. The {} at the threshold was {}.", name, site, pick_noun(reg, rng), pick_verb(reg, rng)),
         1 => format!("{} descended into {}. A {} was opened to document the incursion, though no one expected it to be read.", name, site, pick_noun(reg, rng)),
         2 => format!("{} crossed the boundary of {} with the conviction of someone who has not read the warnings. The warnings were extensive.", name, site),
@@ -1098,11 +1153,24 @@ fn gen_site_entered(name: &str, site: &str, reg: NarrativeRegister, w: f32, rng:
         },
         8 => format!("{} stepped into {} with the confidence of someone who believes the architecture is on their side.", name, site),
         _ => format!("The {} of {} was breached by {}, who offered {} as justification. The {} was {} without further inquiry.", pick_noun(reg, rng), site, name, pick_cause(w, rng), pick_noun(reg, rng), pick_verb(reg, rng)),
-    }
+    };
+    (idx, text)
 }
 
+#[allow(dead_code)]
 fn gen_site_left(name: &str, site: &str, reg: NarrativeRegister, w: f32, rng: &mut StdRng) -> String {
-    match rng.gen_range(0..10) {
+    gen_site_left_indexed(name, site, reg, w, rng, None).1
+}
+
+/// Indexed version for near-duplicate suppression. Returns (template_index, text).
+pub fn gen_site_left_indexed(name: &str, site: &str, reg: NarrativeRegister, w: f32, rng: &mut StdRng, exclude: Option<u8>) -> (u8, String) {
+    let mut idx = rng.gen_range(0..10u8);
+    if let Some(ex) = exclude {
+        if idx == ex {
+            idx = rng.gen_range(0..10u8);
+        }
+    }
+    let text = match idx {
         0 => format!("{} emerged from {} bearing an expression the local clerk declined to categorize. The exit {} was completed {}.", name, site, pick_noun(reg, rng), pick(TEMPORAL_HEDGES, rng)),
         1 => format!("{} departed {}, offering no account of what transpired within. The {} was {} accordingly.", name, site, pick_noun(reg, rng), pick_verb(reg, rng)),
         2 => format!("The departure of {} from {} was recorded in the margins of an unrelated {}. No further details were provided.", name, site, pick_noun(reg, rng)),
@@ -1119,7 +1187,8 @@ fn gen_site_left(name: &str, site: &str, reg: NarrativeRegister, w: f32, rng: &m
         },
         8 => format!("{} exited {} with the unhurried pace of someone who has seen everything inside and found most of it disappointing.", name, site),
         _ => format!("The {} of {} was updated to reflect the departure of {}, {}.", pick_noun(reg, rng), site, name, event_subordinate_clause(reg, w, rng)),
-    }
+    };
+    (idx, text)
 }
 
 // ===========================================================================
@@ -1245,45 +1314,82 @@ pub fn nearest_settlement_name(x: u32, y: u32, world: &World) -> String {
 
 /// Generate a clause referencing a room's purpose.
 fn room_purpose_clause(purpose: &str, reg: NarrativeRegister, rng: &mut StdRng) -> String {
-    match purpose {
-        "Storage" => match rng.gen_range(0..4) {
-            0 => format!("The room in question served as storage — crates stacked with the {} of an office that has forgotten what it stored.", pick_noun(reg, rng)),
-            1 => "The chamber had been designated for storage, a purpose it fulfilled with the mute patience of furniture.".to_string(),
-            2 => "Shelves lined the walls, bearing objects whose inventory tags had outlived their legibility.".to_string(),
-            _ => format!("The storage chamber contained items the {} described only as 'miscellaneous,' a category broad enough to include everything.", pick_noun(reg, rng)),
+    room_purpose_clause_indexed(purpose, reg, rng, None).1
+}
+
+/// Indexed version for near-duplicate suppression. Returns (template_index, text).
+/// Index encodes purpose_ordinal * 4 + sub_index for a globally unique key.
+pub fn room_purpose_clause_indexed(purpose: &str, reg: NarrativeRegister, rng: &mut StdRng, exclude: Option<u8>) -> (u8, String) {
+    let (base, text) = match purpose {
+        "Storage" => {
+            let mut si = rng.gen_range(0..4u8);
+            if let Some(ex) = exclude { if si + 0 == ex { si = rng.gen_range(0..4u8); } }
+            let t = match si {
+                0 => format!("The room in question served as storage — crates stacked with the {} of an office that has forgotten what it stored.", pick_noun(reg, rng)),
+                1 => "The chamber had been designated for storage, a purpose it fulfilled with the mute patience of furniture.".to_string(),
+                2 => "Shelves lined the walls, bearing objects whose inventory tags had outlived their legibility.".to_string(),
+                _ => format!("The storage chamber contained items the {} described only as 'miscellaneous,' a category broad enough to include everything.", pick_noun(reg, rng)),
+            };
+            (0 + si, t)
         },
-        "Ritual" => match rng.gen_range(0..4) {
-            0 => "The chamber bore the unmistakable markings of ritual use — stains that formed patterns no cleaning could fully address.".to_string(),
-            1 => format!("The ritual chamber's purpose was evident from the arrangement of objects the {} had declined to catalogue.", pick_noun(reg, rng)),
-            2 => "The room's ceremonial purpose was attested to by inscriptions that contradicted each other with impressive thoroughness.".to_string(),
-            _ => "A ritual chamber, the rites of which had been discontinued but whose atmosphere had not yet received the memo.".to_string(),
+        "Ritual" => {
+            let mut si = rng.gen_range(0..4u8);
+            if let Some(ex) = exclude { if si + 4 == ex { si = rng.gen_range(0..4u8); } }
+            let t = match si {
+                0 => "The chamber bore the unmistakable markings of ritual use — stains that formed patterns no cleaning could fully address.".to_string(),
+                1 => format!("The ritual chamber's purpose was evident from the arrangement of objects the {} had declined to catalogue.", pick_noun(reg, rng)),
+                2 => "The room's ceremonial purpose was attested to by inscriptions that contradicted each other with impressive thoroughness.".to_string(),
+                _ => "A ritual chamber, the rites of which had been discontinued but whose atmosphere had not yet received the memo.".to_string(),
+            };
+            (4 + si, t)
         },
-        "Administrative" => match rng.gen_range(0..4) {
-            0 => format!("The administrative office still contained desks arranged for a {} that would never convene.", pick_noun(reg, rng)),
-            1 => "The room was unmistakably administrative — the air itself tasted faintly of old paper and institutional regret.".to_string(),
-            2 => format!("An administrative chamber, its filing cabinets {} with a finality that suggested the files had won.", pick_verb(reg, rng)),
-            _ => "The office retained the organized desolation of a workspace whose purpose had concluded but whose furniture had not been informed.".to_string(),
+        "Administrative" => {
+            let mut si = rng.gen_range(0..4u8);
+            if let Some(ex) = exclude { if si + 8 == ex { si = rng.gen_range(0..4u8); } }
+            let t = match si {
+                0 => format!("The administrative office still contained desks arranged for a {} that would never convene.", pick_noun(reg, rng)),
+                1 => "The room was unmistakably administrative — the air itself tasted faintly of old paper and institutional regret.".to_string(),
+                2 => format!("An administrative chamber, its filing cabinets {} with a finality that suggested the files had won.", pick_verb(reg, rng)),
+                _ => "The office retained the organized desolation of a workspace whose purpose had concluded but whose furniture had not been informed.".to_string(),
+            };
+            (8 + si, t)
         },
-        "Habitation" => match rng.gen_range(0..4) {
-            0 => "The room showed signs of habitation — or rather, signs that habitation had once occurred and then thought better of it.".to_string(),
-            1 => "A residential chamber whose last occupant had departed with more haste than tidiness.".to_string(),
-            2 => "The quarters were arranged for comfort of a kind that no longer applied to anyone present.".to_string(),
-            _ => format!("The living quarters were {} by the {} as 'formerly occupied,' a designation that raised no questions because no one was present to ask them.", pick_verb(reg, rng), pick_noun(reg, rng)),
+        "Habitation" => {
+            let mut si = rng.gen_range(0..4u8);
+            if let Some(ex) = exclude { if si + 12 == ex { si = rng.gen_range(0..4u8); } }
+            let t = match si {
+                0 => "The room showed signs of habitation — or rather, signs that habitation had once occurred and then thought better of it.".to_string(),
+                1 => "A residential chamber whose last occupant had departed with more haste than tidiness.".to_string(),
+                2 => "The quarters were arranged for comfort of a kind that no longer applied to anyone present.".to_string(),
+                _ => format!("The living quarters were {} by the {} as 'formerly occupied,' a designation that raised no questions because no one was present to ask them.", pick_verb(reg, rng), pick_noun(reg, rng)),
+            };
+            (12 + si, t)
         },
-        "Trophy" => match rng.gen_range(0..4) {
-            0 => "The trophy room displayed achievements that the current occupants could neither verify nor explain.".to_string(),
-            1 => "A chamber of trophies, each commemorating a victory whose nature the accompanying plaques had been carefully vague about.".to_string(),
-            2 => format!("The trophy hall's displays were {} by a {} that had not been updated since the last era of coherent record-keeping.", pick_verb(reg, rng), pick_noun(reg, rng)),
-            _ => "The trophies lining the walls represented accomplishments that ranged from the military to the taxonomic, with several that defied either category.".to_string(),
+        "Trophy" => {
+            let mut si = rng.gen_range(0..4u8);
+            if let Some(ex) = exclude { if si + 16 == ex { si = rng.gen_range(0..4u8); } }
+            let t = match si {
+                0 => "The trophy room displayed achievements that the current occupants could neither verify nor explain.".to_string(),
+                1 => "A chamber of trophies, each commemorating a victory whose nature the accompanying plaques had been carefully vague about.".to_string(),
+                2 => format!("The trophy hall's displays were {} by a {} that had not been updated since the last era of coherent record-keeping.", pick_verb(reg, rng), pick_noun(reg, rng)),
+                _ => "The trophies lining the walls represented accomplishments that ranged from the military to the taxonomic, with several that defied either category.".to_string(),
+            };
+            (16 + si, t)
         },
-        "Disputed" => match rng.gen_range(0..4) {
-            0 => "The room's purpose was itself the subject of an ongoing dispute between parties who had never occupied it.".to_string(),
-            1 => format!("A chamber whose designation was the subject of a {} that had outlasted the room's structural integrity.", pick_noun(reg, rng)),
-            2 => "The room's function was disputed — three competing plaques on the door offered contradictory explanations with equal confidence.".to_string(),
-            _ => "A disputed chamber, claimed simultaneously as a meeting room, a reliquary, and a broom closet by factions who had never visited.".to_string(),
+        "Disputed" => {
+            let mut si = rng.gen_range(0..4u8);
+            if let Some(ex) = exclude { if si + 20 == ex { si = rng.gen_range(0..4u8); } }
+            let t = match si {
+                0 => "The room's purpose was itself the subject of an ongoing dispute between parties who had never occupied it.".to_string(),
+                1 => format!("A chamber whose designation was the subject of a {} that had outlasted the room's structural integrity.", pick_noun(reg, rng)),
+                2 => "The room's function was disputed — three competing plaques on the door offered contradictory explanations with equal confidence.".to_string(),
+                _ => "A disputed chamber, claimed simultaneously as a meeting room, a reliquary, and a broom closet by factions who had never visited.".to_string(),
+            };
+            (20 + si, t)
         },
-        _ => String::new(),
-    }
+        _ => (255, String::new()),
+    };
+    (base, text)
 }
 
 // ===========================================================================

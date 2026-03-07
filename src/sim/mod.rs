@@ -233,6 +233,18 @@ pub struct SimState {
     arrival_template_history: HashMap<usize, (u8, u64)>,
     /// Per-settlement departure template suppression: maps settlement index -> (last_template_id, tick).
     departure_template_history: HashMap<usize, (u8, u64)>,
+    /// Global site-entry template suppression: (last_template_id, tick).
+    site_entry_template_history: Option<(u8, u64)>,
+    /// Per-site exit template suppression: maps site index -> (last_template_id, tick).
+    site_exit_template_history: HashMap<usize, (u8, u64)>,
+    /// Global room description template suppression: (last_template_id, tick).
+    room_desc_template_history: Option<(u8, u64)>,
+    /// Global census template suppression: (last_template_id, tick).
+    /// All census-mentioning templates share this pool.
+    census_template_history: Option<(u8, u64)>,
+    /// Per-settlement last-census-mention tick, for suppressing census-referencing templates
+    /// from different event types at the same settlement.
+    census_mention_cooldown: HashMap<usize, u64>,
 }
 
 impl SimState {
@@ -284,6 +296,11 @@ impl SimState {
             weather_template_history: HashMap::new(),
             arrival_template_history: HashMap::new(),
             departure_template_history: HashMap::new(),
+            site_entry_template_history: None,
+            site_exit_template_history: HashMap::new(),
+            room_desc_template_history: None,
+            census_template_history: None,
+            census_mention_cooldown: HashMap::new(),
         }
     }
 
@@ -359,6 +376,11 @@ impl SimState {
             weather_template_history: HashMap::new(),
             arrival_template_history: HashMap::new(),
             departure_template_history: HashMap::new(),
+            site_entry_template_history: None,
+            site_exit_template_history: HashMap::new(),
+            room_desc_template_history: None,
+            census_template_history: None,
+            census_mention_cooldown: HashMap::new(),
         }
     }
 
@@ -431,12 +453,13 @@ impl SimState {
                 // For site events, use the site name instead of nearest settlement
                 let description = match &action.event_type {
                     EventType::AgentEnteredSite | EventType::AgentLeftSite => {
-                        // Find which site is at this position
-                        let site_info = self.sites.iter()
-                            .find(|s| s.grid_x == action.new_pos.0 && s.grid_y == action.new_pos.1);
-                        let site_name = site_info.map(|s| s.name.as_str()).unwrap_or("an unnamed site");
+                        // Find which site is at this position (with index for per-site suppression)
+                        let site_with_idx = self.sites.iter().enumerate()
+                            .find(|(_, s)| s.grid_x == action.new_pos.0 && s.grid_y == action.new_pos.1);
+                        let site_name = site_with_idx.map(|(_, s)| s.name.as_str()).unwrap_or("an unnamed site");
+                        let site_idx = site_with_idx.map(|(i, _)| i);
                         // Pick a room purpose from the first floor if available
-                        let room_purpose = site_info.and_then(|s| {
+                        let room_purpose = site_with_idx.and_then(|(_, s)| {
                             s.floors.first().and_then(|f| {
                                 if f.rooms.is_empty() { None }
                                 else {
@@ -445,7 +468,16 @@ impl SimState {
                                 }
                             })
                         });
-                        prose_gen::generate_site_description_with_room(
+                        // Compute suppression excludes
+                        let exclude_entry = self.site_entry_template_history
+                            .and_then(|(tmpl, t)| if tick.saturating_sub(t) < 50 { Some(tmpl) } else { None });
+                        let exclude_exit = site_idx.and_then(|si| {
+                            self.site_exit_template_history.get(&si)
+                                .and_then(|(tmpl, t)| if tick.saturating_sub(*t) < 50 { Some(*tmpl) } else { None })
+                        });
+                        let exclude_room = self.room_desc_template_history
+                            .and_then(|(tmpl, t)| if tick.saturating_sub(t) < 50 { Some(tmpl) } else { None });
+                        let (base_idx, room_idx, is_exit, text) = prose_gen::generate_site_description_indexed(
                             &action.event_type,
                             &agent_name,
                             site_name,
@@ -453,7 +485,22 @@ impl SimState {
                             &mut self.rng,
                             self.world.params.narrative_register,
                             self.world.params.weirdness_coefficient,
-                        )
+                            exclude_entry,
+                            exclude_exit,
+                            exclude_room,
+                        );
+                        // Update suppression histories
+                        if is_exit {
+                            if let Some(si) = site_idx {
+                                self.site_exit_template_history.insert(si, (base_idx, tick));
+                            }
+                        } else {
+                            self.site_entry_template_history = Some((base_idx, tick));
+                        }
+                        if let Some(ri) = room_idx {
+                            self.room_desc_template_history = Some((ri, tick));
+                        }
+                        text
                     }
                     _ => {
                         let loc_name = prose_gen::nearest_settlement_name(
@@ -503,7 +550,7 @@ impl SimState {
                                 text
                             }
                             _ => {
-                                prose_gen::generate_description(
+                                let mut desc = prose_gen::generate_description(
                                     &action.event_type,
                                     Some(&agent_name),
                                     Some(&loc_name),
@@ -511,7 +558,33 @@ impl SimState {
                                     &mut self.rng,
                                     self.world.params.narrative_register,
                                     self.world.params.weirdness_coefficient,
-                                )
+                                );
+                                // Census near-duplicate suppression: if this template
+                                // mentions "census" and one was recently used at this
+                                // settlement, re-generate once to try for a non-census variant
+                                if desc.contains("census") {
+                                    let recent = nearest_sidx
+                                        .and_then(|si| self.census_mention_cooldown.get(&si))
+                                        .map(|&t| tick.saturating_sub(t) < 50)
+                                        .unwrap_or(false);
+                                    if recent {
+                                        desc = prose_gen::generate_description(
+                                            &action.event_type,
+                                            Some(&agent_name),
+                                            Some(&loc_name),
+                                            tick,
+                                            &mut self.rng,
+                                            self.world.params.narrative_register,
+                                            self.world.params.weirdness_coefficient,
+                                        );
+                                    }
+                                }
+                                if desc.contains("census") {
+                                    if let Some(si) = nearest_sidx {
+                                        self.census_mention_cooldown.insert(si, tick);
+                                    }
+                                }
+                                desc
                             }
                         }
                     }
@@ -637,13 +710,14 @@ impl SimState {
             let idx = self.rng.gen_range(0..self.world.settlements.len());
             let s = &self.world.settlements[idx];
             let loc_name = s.name.clone();
+            let loc_xy = (s.x as u32, s.y as u32);
             let grows = self.rng.gen_bool(0.6);
             let etype = if grows {
                 EventType::SettlementGrew
             } else {
                 EventType::SettlementShrank
             };
-            let description = prose_gen::generate_description(
+            let mut description = prose_gen::generate_description(
                 &etype,
                 None,
                 Some(&loc_name),
@@ -652,11 +726,28 @@ impl SimState {
                 self.world.params.narrative_register,
                 self.world.params.weirdness_coefficient,
             );
+            // Census mention suppression for settlement events
+            if description.contains("census") {
+                let recent = self.census_mention_cooldown.get(&idx)
+                    .map(|&t| tick.saturating_sub(t) < 50)
+                    .unwrap_or(false);
+                if recent {
+                    description = prose_gen::generate_description(
+                        &etype, None, Some(&loc_name), tick,
+                        &mut self.rng,
+                        self.world.params.narrative_register,
+                        self.world.params.weirdness_coefficient,
+                    );
+                }
+            }
+            if description.contains("census") {
+                self.census_mention_cooldown.insert(idx, tick);
+            }
             new_events.push(Event {
                 tick,
                 event_type: etype,
                 subject_id: None,
-                location: Some((s.x as u32, s.y as u32)),
+                location: Some(loc_xy),
                 description,
             });
         }
@@ -665,11 +756,19 @@ impl SimState {
         let census_interval = (100.0 / self.world.params.temporal_rate).max(10.0) as u64;
         if tick % census_interval == 0 {
             let alive_count = self.agents.iter().filter(|a| a.alive).count();
-            let description = prose_gen::generate_census_with_count(
+            let exclude = self.census_template_history
+                .and_then(|(tmpl, t)| if tick.saturating_sub(t) < 50 { Some(tmpl) } else { None });
+            let (tmpl_idx, description) = prose_gen::generate_census_with_count_indexed(
                 alive_count,
                 &mut self.rng,
                 self.world.params.narrative_register,
+                exclude,
             );
+            self.census_template_history = Some((tmpl_idx, tick));
+            // Mark all settlements as having a recent census mention
+            for si in 0..self.world.settlements.len() {
+                self.census_mention_cooldown.insert(si, tick);
+            }
             new_events.push(Event {
                 tick,
                 event_type: EventType::CensusReport,
@@ -1166,13 +1265,37 @@ impl SimState {
             agent.alive = false;
 
             let loc_name = prose_gen::nearest_settlement_name(pos.0, pos.1, &self.world);
-            let description = prose_gen::generate_emigration(
+            let nearest_sidx = self.world.settlements.iter().enumerate()
+                .min_by_key(|(_, s)| {
+                    let dx = s.x as i32 - pos.0 as i32;
+                    let dy = s.y as i32 - pos.1 as i32;
+                    dx * dx + dy * dy
+                })
+                .map(|(i, _)| i);
+            let mut description = prose_gen::generate_emigration(
                 &agent_name,
                 &loc_name,
                 register,
                 weirdness,
                 &mut self.rng,
             );
+            // Census mention suppression
+            if description.contains("census") {
+                let recent = nearest_sidx
+                    .and_then(|si| self.census_mention_cooldown.get(&si))
+                    .map(|&t| tick.saturating_sub(t) < 50)
+                    .unwrap_or(false);
+                if recent {
+                    description = prose_gen::generate_emigration(
+                        &agent_name, &loc_name, register, weirdness, &mut self.rng,
+                    );
+                }
+            }
+            if description.contains("census") {
+                if let Some(si) = nearest_sidx {
+                    self.census_mention_cooldown.insert(si, tick);
+                }
+            }
 
             events.push(Event {
                 tick,
@@ -1205,13 +1328,27 @@ impl SimState {
             let age = self.rng.gen_range(3650..18250); // ~10-50 years
 
             let loc_name = prose_gen::nearest_settlement_name(sx, sy, &self.world);
-            let description = prose_gen::generate_immigration(
+            let mut description = prose_gen::generate_immigration(
                 &name,
                 &loc_name,
                 register,
                 weirdness,
                 &mut self.rng,
             );
+            // Census mention suppression
+            if description.contains("census") {
+                let recent = self.census_mention_cooldown.get(&si)
+                    .map(|&t| tick.saturating_sub(t) < 50)
+                    .unwrap_or(false);
+                if recent {
+                    description = prose_gen::generate_immigration(
+                        &name, &loc_name, register, weirdness, &mut self.rng,
+                    );
+                }
+            }
+            if description.contains("census") {
+                self.census_mention_cooldown.insert(si, tick);
+            }
 
             self.agents.push(Agent {
                 id: agent_id,
