@@ -56,6 +56,16 @@ pub enum Tile {
     Pit,
     /// Outdoor open space (settlements).
     Ground,
+    /// Collapsed wall / debris (ruins, abandoned institutions).
+    Rubble,
+    /// Open sky where roof has collapsed (ruins).
+    OpenSky,
+    /// Shrine focal point / altar.
+    FocalPoint,
+    /// Burial niche (tombsites).
+    Niche,
+    /// Organic / irregular boundary (taxonomically ambiguous regions).
+    OrganicWall,
 }
 
 impl Tile {
@@ -69,24 +79,35 @@ impl Tile {
             Tile::Water => '~',
             Tile::Pit => ' ',
             Tile::Ground => '\u{00B7}', // middle dot ·
+            Tile::Rubble => '%',
+            Tile::OpenSky => '\u{00B7}', // middle dot, colored differently
+            Tile::FocalPoint => '*',
+            Tile::Niche => '\u{00B0}', // degree sign °
+            Tile::OrganicWall => '\u{2593}', // dark shade ▓
         }
     }
 
     pub fn color(self) -> ratatui::style::Color {
         use ratatui::style::Color;
         match self {
-            Tile::Floor => Color::Rgb(70, 65, 60),        // dim stone — atmospheric
-            Tile::Wall => Color::Rgb(130, 120, 110),      // visible but not glaring
-            Tile::Door => Color::Rgb(200, 170, 80),       // warm wood
-            Tile::StairDown | Tile::StairUp => Color::Rgb(100, 200, 220), // bright feature
-            Tile::Water => Color::Rgb(40, 90, 160),       // underground pool
-            Tile::Pit => Color::Rgb(30, 25, 20),          // dark void
-            Tile::Ground => Color::Rgb(55, 80, 45),      // outdoor grass/dirt
+            Tile::Floor => Color::Rgb(70, 65, 60),
+            Tile::Wall => Color::Rgb(130, 120, 110),
+            Tile::Door => Color::Rgb(200, 170, 80),
+            Tile::StairDown | Tile::StairUp => Color::Rgb(100, 200, 220),
+            Tile::Water => Color::Rgb(40, 90, 160),
+            Tile::Pit => Color::Rgb(30, 25, 20),
+            Tile::Ground => Color::Rgb(55, 80, 45),
+            Tile::Rubble => Color::Rgb(140, 110, 70),
+            Tile::OpenSky => Color::Rgb(80, 100, 130),
+            Tile::FocalPoint => Color::Rgb(240, 200, 80),
+            Tile::Niche => Color::Rgb(120, 115, 110),
+            Tile::OrganicWall => Color::Rgb(90, 120, 80),
         }
     }
 
     pub fn walkable(self) -> bool {
-        matches!(self, Tile::Floor | Tile::Door | Tile::StairDown | Tile::StairUp | Tile::Ground)
+        matches!(self, Tile::Floor | Tile::Door | Tile::StairDown | Tile::StairUp
+            | Tile::Ground | Tile::OpenSky | Tile::Rubble)
     }
 }
 
@@ -106,6 +127,18 @@ pub enum RoomPurpose {
     Residential,
     Warehouse,
     Garrison,
+    // Bureaucratic Annex purposes
+    FilingRoom,
+    WaitingArea,
+    ProcessingDesk,
+    ArchiveVault,
+    // Tombsite purposes
+    TombChamber,
+    BurialNiche,
+    MourningHall,
+    // Abandoned Institution purposes
+    FormerOffice,
+    CollapsedWing,
 }
 
 impl RoomPurpose {
@@ -123,6 +156,15 @@ impl RoomPurpose {
             RoomPurpose::Residential => "Residential",
             RoomPurpose::Warehouse => "Warehouse",
             RoomPurpose::Garrison => "Garrison",
+            RoomPurpose::FilingRoom => "Filing Room",
+            RoomPurpose::WaitingArea => "Waiting Area",
+            RoomPurpose::ProcessingDesk => "Processing Desk",
+            RoomPurpose::ArchiveVault => "Archive Vault",
+            RoomPurpose::TombChamber => "Tomb Chamber",
+            RoomPurpose::BurialNiche => "Burial Niche",
+            RoomPurpose::MourningHall => "Mourning Hall",
+            RoomPurpose::FormerOffice => "Former Office",
+            RoomPurpose::CollapsedWing => "Collapsed Wing",
         }
     }
 
@@ -141,6 +183,15 @@ impl RoomPurpose {
             RoomPurpose::Residential => "Home",
             RoomPurpose::Warehouse => "Wares",
             RoomPurpose::Garrison => "Guard",
+            RoomPurpose::FilingRoom => "Filing",
+            RoomPurpose::WaitingArea => "Wait",
+            RoomPurpose::ProcessingDesk => "Desk",
+            RoomPurpose::ArchiveVault => "Archive",
+            RoomPurpose::TombChamber => "Tomb",
+            RoomPurpose::BurialNiche => "Niche",
+            RoomPurpose::MourningHall => "Mourn",
+            RoomPurpose::FormerOffice => "Office",
+            RoomPurpose::CollapsedWing => "Ruins",
         }
     }
 }

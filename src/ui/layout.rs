@@ -489,6 +489,100 @@ fn draw_follow_panel(frame: &mut Frame, area: Rect, sim: &SimState) {
     frame.render_widget(widget, area);
 }
 
+/// Returns (wall_color, floor_color, label_color, show_labels) for a site kind.
+fn site_palette(kind: &crate::sim::site::SiteKind) -> (Color, Color, Color, bool) {
+    use crate::sim::site::SiteKind;
+    match kind {
+        SiteKind::Dungeon => (
+            Color::Rgb(60, 55, 50),    // deep grey walls
+            Color::Rgb(35, 32, 28),    // very dim floor
+            Color::Rgb(90, 85, 80),    // subtle labels
+            true,
+        ),
+        SiteKind::Ruin => (
+            Color::Rgb(100, 85, 65),   // weathered stone walls
+            Color::Rgb(55, 50, 42),    // dusty floor
+            Color::Rgb(120, 100, 70),  // faded labels
+            false, // ruins don't need room labels
+        ),
+        SiteKind::Shrine => (
+            Color::Rgb(140, 80, 50),   // warm stone
+            Color::Rgb(80, 55, 35),    // candlelit floor
+            Color::Rgb(220, 180, 80),  // golden labels
+            true,
+        ),
+        SiteKind::BureaucraticAnnex => (
+            Color::Rgb(120, 125, 135), // cool grey walls
+            Color::Rgb(70, 75, 85),    // grey floor
+            Color::Rgb(160, 175, 200), // pale blue labels
+            true,
+        ),
+        SiteKind::ControversialTombsite => (
+            Color::Rgb(100, 95, 90),   // stone grey walls
+            Color::Rgb(55, 52, 48),    // dark stone floor
+            Color::Rgb(140, 130, 120), // muted labels
+            true,
+        ),
+        SiteKind::TaxonomicallyAmbiguousRegion => (
+            Color::Rgb(70, 100, 65),   // uncertain green-grey
+            Color::Rgb(50, 60, 45),    // murky floor
+            Color::Rgb(120, 150, 100), // unsettled labels
+            false,
+        ),
+        SiteKind::AbandonedInstitution => (
+            Color::Rgb(130, 110, 75),  // yellowed/rusted walls
+            Color::Rgb(75, 65, 45),    // dusty floor
+            Color::Rgb(170, 145, 90),  // faded office labels
+            true,
+        ),
+    }
+}
+
+/// Returns the color for a specific tile in a specific site kind context.
+fn site_tile_color(tile: crate::sim::site::Tile, kind: &crate::sim::site::SiteKind) -> Color {
+    use crate::sim::site::{SiteKind, Tile};
+    let (wall_color, floor_color, _, _) = site_palette(kind);
+
+    match (tile, kind) {
+        // All site kinds use their palette for walls and floors
+        (Tile::Wall, _) => wall_color,
+        (Tile::Floor, _) => floor_color,
+
+        // Dungeon: water and pits stand out more against dark background
+        (Tile::Water, SiteKind::Dungeon) => Color::Rgb(50, 110, 190),
+        (Tile::Pit, SiteKind::Dungeon) => Color::Rgb(15, 12, 8),
+
+        // Ruin-specific
+        (Tile::Rubble, SiteKind::Ruin) => Color::Rgb(130, 105, 70),
+        (Tile::OpenSky, SiteKind::Ruin) => Color::Rgb(90, 110, 140),
+
+        // Shrine: warm candlelight tones
+        (Tile::FocalPoint, SiteKind::Shrine) => Color::Rgb(255, 210, 60),
+        (Tile::Door, SiteKind::Shrine) => Color::Rgb(180, 100, 50),
+
+        // Annex: cool fluorescent
+        (Tile::Door, SiteKind::BureaucraticAnnex) => Color::Rgb(150, 160, 180),
+
+        // Tombsite
+        (Tile::FocalPoint, SiteKind::ControversialTombsite) => Color::Rgb(180, 170, 150),
+        (Tile::Niche, SiteKind::ControversialTombsite) => Color::Rgb(150, 140, 130),
+
+        // Ambiguous region: shifting colors
+        (Tile::OrganicWall, SiteKind::TaxonomicallyAmbiguousRegion) => Color::Rgb(60, 90, 55),
+        (Tile::Water, SiteKind::TaxonomicallyAmbiguousRegion) => Color::Rgb(60, 100, 80),
+        (Tile::Ground, SiteKind::TaxonomicallyAmbiguousRegion) => Color::Rgb(70, 80, 50),
+        (Tile::FocalPoint, SiteKind::TaxonomicallyAmbiguousRegion) => Color::Rgb(150, 130, 60),
+        (Tile::Niche, SiteKind::TaxonomicallyAmbiguousRegion) => Color::Rgb(100, 90, 110),
+
+        // Abandoned institution: warm decay
+        (Tile::Rubble, SiteKind::AbandonedInstitution) => Color::Rgb(150, 120, 70),
+        (Tile::Door, SiteKind::AbandonedInstitution) => Color::Rgb(140, 110, 60),
+
+        // Default: use the tile's own color
+        _ => tile.color(),
+    }
+}
+
 fn draw_site_panel(frame: &mut Frame, area: Rect, sim: &SimState, site_idx: usize, floor_idx: usize) {
     let site = match sim.sites.get(site_idx) {
         Some(s) => s,
@@ -519,11 +613,9 @@ fn draw_site_panel(frame: &mut Frame, area: Rect, sim: &SimState, site_idx: usiz
         .borders(Borders::ALL)
         .border_style(Style::default().fg(site.kind.map_color()));
 
-    // Build agent positions within this site for overlay
     let agent_positions: Vec<(usize, usize, usize)> = site.population.iter()
         .filter_map(|&aid| {
             sim.agents.iter().find(|a| a.id == aid && a.alive).map(|a| {
-                // Place agents in random-ish spots within rooms
                 let room_idx = (aid as usize) % floor.rooms.len().max(1);
                 if let Some(room) = floor.rooms.get(room_idx) {
                     let (cx, cy) = room.center();
@@ -535,19 +627,36 @@ fn draw_site_panel(frame: &mut Frame, area: Rect, sim: &SimState, site_idx: usiz
         })
         .collect();
 
-    // Build inhabitant positions on this floor
     let inhabitant_positions: Vec<(usize, usize, char)> = site.inhabitants.iter()
         .filter(|i| i.floor == floor_idx)
         .map(|i| (i.x, i.y, i.glyph))
         .collect();
 
+    // Precompute room label positions if this site kind shows labels
+    let (_, _, label_color, show_labels) = site_palette(&site.kind);
+    let label_chars: Vec<(usize, usize, char)> = if show_labels {
+        let mut chars = Vec::new();
+        for room in &floor.rooms {
+            let label = room.purpose.short_label();
+            let label_y = room.y + room.h / 2;
+            let label_len = label.len().min(room.w);
+            let label_start = room.x + (room.w.saturating_sub(label_len)) / 2;
+            for (i, ch) in label.chars().take(label_len).enumerate() {
+                if label_start + i < FLOOR_WIDTH && label_y < FLOOR_HEIGHT {
+                    chars.push((label_start + i, label_y, ch));
+                }
+            }
+        }
+        chars
+    } else {
+        Vec::new()
+    };
+
     let inner_w = area.width.saturating_sub(2) as usize;
     let inner_h = area.height.saturating_sub(2) as usize;
 
-    // Build the tile grid lines
     let mut lines: Vec<Line> = Vec::new();
 
-    // Scale: try 1:1 first, stretch if panel is bigger
     let col_base = inner_w / FLOOR_WIDTH;
     let col_extra = inner_w % FLOOR_WIDTH;
     let row_base = inner_h / FLOOR_HEIGHT;
@@ -563,19 +672,30 @@ fn draw_site_panel(frame: &mut Frame, area: Rect, sim: &SimState, site_idx: usiz
             .map(|x| {
                 let w = if x < col_extra { col_base + 1 } else { col_base };
 
-                // Check if an agent is at this position
+                // Agents take priority
                 if let Some((_, _, people_id)) = agent_positions.iter().find(|(ax, ay, _)| *ax == x && *ay == y) {
                     let color = PEOPLE_COLORS[people_id % PEOPLE_COLORS.len()];
                     let s: String = std::iter::repeat('@').take(w.max(1)).collect();
-                    Span::styled(s, Style::default().fg(color))
-                } else if let Some((_, _, glyph)) = inhabitant_positions.iter().find(|(ix, iy, _)| *ix == x && *iy == y) {
-                    let s: String = std::iter::repeat(*glyph).take(w.max(1)).collect();
-                    Span::styled(s, Style::default().fg(Color::Rgb(180, 160, 200)))
-                } else {
-                    let tile = floor.tiles[y][x];
-                    let s: String = std::iter::repeat(tile.glyph()).take(w.max(1)).collect();
-                    Span::styled(s, Style::default().fg(tile.color()))
+                    return Span::styled(s, Style::default().fg(color));
                 }
+                // Inhabitants next
+                if let Some((_, _, glyph)) = inhabitant_positions.iter().find(|(ix, iy, _)| *ix == x && *iy == y) {
+                    let s: String = std::iter::repeat(*glyph).take(w.max(1)).collect();
+                    return Span::styled(s, Style::default().fg(Color::Rgb(180, 160, 200)));
+                }
+                // Room labels
+                if let Some((_, _, ch)) = label_chars.iter().find(|(lx, ly, _)| *lx == x && *ly == y) {
+                    let mut s = String::new();
+                    s.push(*ch);
+                    for _ in 1..w.max(1) { s.push(' '); }
+                    return Span::styled(s, Style::default().fg(label_color));
+                }
+
+                // Tile with site-kind-specific coloring
+                let tile = floor.tiles[y][x];
+                let color = site_tile_color(tile, &site.kind);
+                let s: String = std::iter::repeat(tile.glyph()).take(w.max(1)).collect();
+                Span::styled(s, Style::default().fg(color))
             })
             .collect();
 

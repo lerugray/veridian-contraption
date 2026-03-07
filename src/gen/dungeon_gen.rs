@@ -80,7 +80,7 @@ pub fn generate_sites(
 
         let mut floors = Vec::with_capacity(floor_count);
         for depth in 0..floor_count {
-            floors.push(generate_floor(depth, depth == floor_count - 1, rng));
+            floors.push(generate_site_floor(&kind, depth, depth == floor_count - 1, rng));
         }
 
         // Some sites are controlled by an existing institution
@@ -246,8 +246,21 @@ fn generate_origin(kind: &SiteKind, rng: &mut StdRng) -> String {
     }
 }
 
-/// Generate a single floor using room-and-corridor algorithm.
-fn generate_floor(depth: usize, is_last: bool, rng: &mut StdRng) -> Floor {
+/// Dispatch floor generation to the appropriate per-kind generator.
+fn generate_site_floor(kind: &SiteKind, depth: usize, is_last: bool, rng: &mut StdRng) -> Floor {
+    match kind {
+        SiteKind::Dungeon => generate_dungeon_floor(depth, is_last, rng),
+        SiteKind::Ruin => generate_ruin_floor(depth, is_last, rng),
+        SiteKind::Shrine => generate_shrine_floor(depth, is_last, rng),
+        SiteKind::BureaucraticAnnex => generate_annex_floor(depth, is_last, rng),
+        SiteKind::ControversialTombsite => generate_tombsite_floor(depth, is_last, rng),
+        SiteKind::TaxonomicallyAmbiguousRegion => generate_ambiguous_floor(depth, is_last, rng),
+        SiteKind::AbandonedInstitution => generate_abandoned_floor(depth, is_last, rng),
+    }
+}
+
+/// DUNGEON: Deep grey rooms, corridors, water/pit hazards that stand out.
+fn generate_dungeon_floor(depth: usize, is_last: bool, rng: &mut StdRng) -> Floor {
     let mut tiles = vec![vec![Tile::Wall; FLOOR_WIDTH]; FLOOR_HEIGHT];
     let mut rooms = Vec::new();
 
@@ -262,7 +275,6 @@ fn generate_floor(depth: usize, is_last: bool, rng: &mut StdRng) -> Floor {
         let x = rng.gen_range(1..FLOOR_WIDTH.saturating_sub(w + 1));
         let y = rng.gen_range(1..FLOOR_HEIGHT.saturating_sub(h + 1));
 
-        // Check overlap with existing rooms (with 1-tile padding)
         let overlaps = rooms.iter().any(|r: &Room| {
             x < r.x + r.w + 1 && x + w + 1 > r.x && y < r.y + r.h + 1 && y + h + 1 > r.y
         });
@@ -279,7 +291,6 @@ fn generate_floor(depth: usize, is_last: bool, rng: &mut StdRng) -> Floor {
             _ => RoomPurpose::Disputed,
         };
 
-        // Carve the room
         for ry in y..y + h {
             for rx in x..x + w {
                 tiles[ry][rx] = Tile::Floor;
@@ -289,32 +300,17 @@ fn generate_floor(depth: usize, is_last: bool, rng: &mut StdRng) -> Floor {
         rooms.push(Room { x, y, w, h, purpose });
     }
 
-    // Connect rooms with corridors
     for i in 1..rooms.len() {
         let (cx1, cy1) = rooms[i - 1].center();
         let (cx2, cy2) = rooms[i].center();
         carve_corridor(&mut tiles, cx1, cy1, cx2, cy2, rng);
     }
 
-    // Place doors at corridor-room junctions
     place_doors(&mut tiles, &rooms, rng);
+    place_stairs(&mut tiles, &rooms, depth, is_last);
 
-    // Place stairs: up on non-first floors, down on non-last floors
-    if depth > 0 {
-        if let Some(room) = rooms.first() {
-            let (cx, cy) = room.center();
-            tiles[cy][cx] = Tile::StairUp;
-        }
-    }
-    if !is_last {
-        if let Some(room) = rooms.last() {
-            let (cx, cy) = room.center();
-            tiles[cy][cx] = Tile::StairDown;
-        }
-    }
-
-    // Scatter a few water/pit hazards
-    let hazard_count = rng.gen_range(0..=3);
+    // More hazards in dungeons — water and pits stand out against dark floor
+    let hazard_count = rng.gen_range(2..=5);
     for _ in 0..hazard_count {
         let rx = rng.gen_range(1..FLOOR_WIDTH - 1);
         let ry = rng.gen_range(1..FLOOR_HEIGHT - 1);
@@ -323,10 +319,516 @@ fn generate_floor(depth: usize, is_last: bool, rng: &mut StdRng) -> Floor {
         }
     }
 
-    Floor {
-        depth,
-        tiles,
-        rooms,
+    Floor { depth, tiles, rooms }
+}
+
+/// RUIN: Partially collapsed walls, rubble, open sky sections.
+fn generate_ruin_floor(depth: usize, is_last: bool, rng: &mut StdRng) -> Floor {
+    // Start with a normal structure, then damage it
+    let mut tiles = vec![vec![Tile::Wall; FLOOR_WIDTH]; FLOOR_HEIGHT];
+    let mut rooms = Vec::new();
+
+    let room_count = rng.gen_range(4..=7);
+    let mut attempts = 0;
+
+    while rooms.len() < room_count && attempts < 200 {
+        attempts += 1;
+        let w = rng.gen_range(4..=10);
+        let h = rng.gen_range(3..=6);
+        let x = rng.gen_range(1..FLOOR_WIDTH.saturating_sub(w + 1));
+        let y = rng.gen_range(1..FLOOR_HEIGHT.saturating_sub(h + 1));
+
+        let overlaps = rooms.iter().any(|r: &Room| {
+            x < r.x + r.w + 1 && x + w + 1 > r.x && y < r.y + r.h + 1 && y + h + 1 > r.y
+        });
+        if overlaps { continue; }
+
+        let purpose = match rng.gen_range(0..4) {
+            0 => RoomPurpose::Storage,
+            1 => RoomPurpose::Habitation,
+            2 => RoomPurpose::Trophy,
+            _ => RoomPurpose::Disputed,
+        };
+
+        for ry in y..y + h {
+            for rx in x..x + w {
+                tiles[ry][rx] = Tile::Floor;
+            }
+        }
+        rooms.push(Room { x, y, w, h, purpose });
+    }
+
+    for i in 1..rooms.len() {
+        let (cx1, cy1) = rooms[i - 1].center();
+        let (cx2, cy2) = rooms[i].center();
+        carve_corridor(&mut tiles, cx1, cy1, cx2, cy2, rng);
+    }
+    place_doors(&mut tiles, &rooms, rng);
+    place_stairs(&mut tiles, &rooms, depth, is_last);
+
+    // DAMAGE PASS: convert some walls to rubble, some floor to open sky
+    for y in 0..FLOOR_HEIGHT {
+        for x in 0..FLOOR_WIDTH {
+            match tiles[y][x] {
+                Tile::Wall => {
+                    // ~25% of walls collapse to rubble
+                    if rng.gen_bool(0.25) {
+                        tiles[y][x] = Tile::Rubble;
+                    }
+                }
+                Tile::Floor => {
+                    // ~15% of floor becomes open sky (collapsed roof)
+                    if rng.gen_bool(0.15) {
+                        tiles[y][x] = Tile::OpenSky;
+                    }
+                    // ~5% becomes rubble (fallen debris)
+                    else if rng.gen_bool(0.05) {
+                        tiles[y][x] = Tile::Rubble;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Create a few large open-sky patches (collapsed sections)
+    let sky_patches = rng.gen_range(1..=3);
+    for _ in 0..sky_patches {
+        let cx = rng.gen_range(3..FLOOR_WIDTH - 3);
+        let cy = rng.gen_range(2..FLOOR_HEIGHT - 2);
+        let radius = rng.gen_range(2..=4);
+        for dy in cy.saturating_sub(radius)..=(cy + radius).min(FLOOR_HEIGHT - 1) {
+            for dx in cx.saturating_sub(radius)..=(cx + radius).min(FLOOR_WIDTH - 1) {
+                let dist = ((dx as i32 - cx as i32).pow(2) + (dy as i32 - cy as i32).pow(2)) as f64;
+                if dist.sqrt() <= radius as f64 + 0.5 {
+                    if tiles[dy][dx] == Tile::Wall || tiles[dy][dx] == Tile::Floor {
+                        tiles[dy][dx] = if rng.gen_bool(0.3) { Tile::Rubble } else { Tile::OpenSky };
+                    }
+                }
+            }
+        }
+    }
+
+    Floor { depth, tiles, rooms }
+}
+
+/// SHRINE: Symmetrical layout with central focal point, ceremonial corridors.
+fn generate_shrine_floor(depth: usize, is_last: bool, rng: &mut StdRng) -> Floor {
+    let mut tiles = vec![vec![Tile::Wall; FLOOR_WIDTH]; FLOOR_HEIGHT];
+    let mut rooms = Vec::new();
+
+    let cx = FLOOR_WIDTH / 2;
+    let cy = FLOOR_HEIGHT / 2;
+
+    // Central chamber — large and prominent
+    let cw = rng.gen_range(6..=10);
+    let ch = rng.gen_range(4..=6);
+    let crx = cx - cw / 2;
+    let cry = cy - ch / 2;
+    for ry in cry..cry + ch {
+        for rx in crx..crx + cw {
+            if ry < FLOOR_HEIGHT && rx < FLOOR_WIDTH {
+                tiles[ry][rx] = Tile::Floor;
+            }
+        }
+    }
+    // Place focal point at center
+    tiles[cy][cx] = Tile::FocalPoint;
+    rooms.push(Room { x: crx, y: cry, w: cw, h: ch, purpose: RoomPurpose::Ritual });
+
+    // Symmetrical approach corridors from cardinal directions
+    // North corridor
+    for y in 1..cry {
+        if cx < FLOOR_WIDTH { tiles[y][cx] = Tile::Floor; }
+        if cx > 0 { tiles[y][cx - 1] = Tile::Floor; }
+    }
+    // South corridor
+    for y in (cry + ch)..FLOOR_HEIGHT - 1 {
+        if cx < FLOOR_WIDTH { tiles[y][cx] = Tile::Floor; }
+        if cx > 0 { tiles[y][cx - 1] = Tile::Floor; }
+    }
+    // East corridor
+    for x in (crx + cw)..FLOOR_WIDTH - 1 {
+        if cy < FLOOR_HEIGHT { tiles[cy][x] = Tile::Floor; }
+        if cy > 0 { tiles[cy - 1][x] = Tile::Floor; }
+    }
+    // West corridor
+    for x in 1..crx {
+        if cy < FLOOR_HEIGHT { tiles[cy][x] = Tile::Floor; }
+        if cy > 0 { tiles[cy - 1][x] = Tile::Floor; }
+    }
+
+    // Small symmetrical side chambers (2-4)
+    let side_rooms = rng.gen_range(2..=4);
+    let offsets: Vec<(i32, i32)> = vec![(-1, -1), (1, -1), (-1, 1), (1, 1)];
+    for i in 0..side_rooms {
+        let (dx, dy) = offsets[i % offsets.len()];
+        let sx = (cx as i32 + dx * rng.gen_range(6..=10) as i32).clamp(2, FLOOR_WIDTH as i32 - 6) as usize;
+        let sy = (cy as i32 + dy * rng.gen_range(4..=6) as i32).clamp(2, FLOOR_HEIGHT as i32 - 5) as usize;
+        let sw = rng.gen_range(3..=5);
+        let sh = rng.gen_range(2..=4);
+
+        let overlaps = rooms.iter().any(|r: &Room| {
+            sx < r.x + r.w + 1 && sx + sw + 1 > r.x && sy < r.y + r.h + 1 && sy + sh + 1 > r.y
+        });
+        if overlaps { continue; }
+
+        for ry in sy..sy + sh {
+            for rx in sx..sx + sw {
+                if ry < FLOOR_HEIGHT && rx < FLOOR_WIDTH {
+                    tiles[ry][rx] = Tile::Floor;
+                }
+            }
+        }
+        // Connect to central chamber
+        let (scx, scy) = (sx + sw / 2, sy + sh / 2);
+        carve_corridor(&mut tiles, scx, scy, cx, cy, rng);
+
+        let purpose = match rng.gen_range(0..3) {
+            0 => RoomPurpose::Storage,
+            1 => RoomPurpose::Ritual,
+            _ => RoomPurpose::Trophy,
+        };
+        rooms.push(Room { x: sx, y: sy, w: sw, h: sh, purpose });
+    }
+
+    place_doors(&mut tiles, &rooms, rng);
+    place_stairs(&mut tiles, &rooms, depth, is_last);
+
+    Floor { depth, tiles, rooms }
+}
+
+/// BUREAUCRATIC ANNEX: Grid-like rooms, regular corridors, office labels.
+fn generate_annex_floor(depth: usize, is_last: bool, rng: &mut StdRng) -> Floor {
+    let mut tiles = vec![vec![Tile::Wall; FLOOR_WIDTH]; FLOOR_HEIGHT];
+    let mut rooms = Vec::new();
+
+    let purposes = [
+        RoomPurpose::FilingRoom,
+        RoomPurpose::WaitingArea,
+        RoomPurpose::ProcessingDesk,
+        RoomPurpose::ArchiveVault,
+        RoomPurpose::Administrative,
+        RoomPurpose::FilingRoom,
+        RoomPurpose::WaitingArea,
+        RoomPurpose::ProcessingDesk,
+    ];
+
+    // Grid layout: 2-3 rows, 3-4 columns of uniform rooms
+    let cols = rng.gen_range(3..=4);
+    let rows = rng.gen_range(2..=3);
+    let room_w = (FLOOR_WIDTH - 2) / cols - 1;
+    let room_h = (FLOOR_HEIGHT - 2) / rows - 1;
+    let room_w = room_w.max(4);
+    let room_h = room_h.max(3);
+
+    let mut room_idx = 0;
+    for row in 0..rows {
+        for col in 0..cols {
+            let x = 2 + col * (room_w + 1);
+            let y = 2 + row * (room_h + 1);
+            if x + room_w >= FLOOR_WIDTH - 1 || y + room_h >= FLOOR_HEIGHT - 1 {
+                continue;
+            }
+
+            for ry in y..y + room_h {
+                for rx in x..x + room_w {
+                    tiles[ry][rx] = Tile::Floor;
+                }
+            }
+
+            let purpose = purposes[room_idx % purposes.len()].clone();
+            rooms.push(Room { x, y, w: room_w, h: room_h, purpose });
+            room_idx += 1;
+        }
+    }
+
+    // Central corridor running horizontally through the middle
+    let corridor_y = FLOOR_HEIGHT / 2;
+    for x in 1..FLOOR_WIDTH - 1 {
+        tiles[corridor_y][x] = Tile::Floor;
+    }
+    // Vertical corridor down the center
+    let corridor_x = FLOOR_WIDTH / 2;
+    for y in 1..FLOOR_HEIGHT - 1 {
+        tiles[y][corridor_x] = Tile::Floor;
+    }
+
+    // Connect rooms to corridors
+    for room in &rooms {
+        let (rcx, rcy) = room.center();
+        // Connect to nearest corridor axis
+        carve_h(&mut tiles, rcx, corridor_x, rcy);
+        carve_v(&mut tiles, rcy, corridor_y, rcx);
+    }
+
+    place_doors(&mut tiles, &rooms, rng);
+    place_stairs(&mut tiles, &rooms, depth, is_last);
+
+    Floor { depth, tiles, rooms }
+}
+
+/// CONTROVERSIAL TOMBSITE: Central tomb, surrounding burial niches, solemn layout.
+fn generate_tombsite_floor(depth: usize, is_last: bool, rng: &mut StdRng) -> Floor {
+    let mut tiles = vec![vec![Tile::Wall; FLOOR_WIDTH]; FLOOR_HEIGHT];
+    let mut rooms = Vec::new();
+
+    let cx = FLOOR_WIDTH / 2;
+    let cy = FLOOR_HEIGHT / 2;
+
+    // Central tomb chamber — large
+    let tw = rng.gen_range(6..=10);
+    let th = rng.gen_range(4..=6);
+    let tx = cx - tw / 2;
+    let ty = cy - th / 2;
+    for ry in ty..ty + th {
+        for rx in tx..tx + tw {
+            if ry < FLOOR_HEIGHT && rx < FLOOR_WIDTH {
+                tiles[ry][rx] = Tile::Floor;
+            }
+        }
+    }
+    // Central sarcophagus marker
+    tiles[cy][cx] = Tile::FocalPoint;
+    rooms.push(Room { x: tx, y: ty, w: tw, h: th, purpose: RoomPurpose::TombChamber });
+
+    // Surrounding burial niches in a ring pattern
+    let niche_count = rng.gen_range(4..=8);
+    let niche_w = 3;
+    let niche_h = 2;
+    for i in 0..niche_count {
+        let angle = (i as f64 / niche_count as f64) * std::f64::consts::TAU;
+        let dist = rng.gen_range(7..=12) as f64;
+        let nx = (cx as f64 + angle.cos() * dist).round() as usize;
+        let ny = (cy as f64 + angle.sin() * dist * 0.6).round() as usize; // compressed vertically for terminal
+        let nx = nx.clamp(2, FLOOR_WIDTH - niche_w - 1);
+        let ny = ny.clamp(2, FLOOR_HEIGHT - niche_h - 1);
+
+        let overlaps = rooms.iter().any(|r: &Room| {
+            nx < r.x + r.w + 1 && nx + niche_w + 1 > r.x
+                && ny < r.y + r.h + 1 && ny + niche_h + 1 > r.y
+        });
+        if overlaps { continue; }
+
+        for ry in ny..ny + niche_h {
+            for rx in nx..nx + niche_w {
+                if ry < FLOOR_HEIGHT && rx < FLOOR_WIDTH {
+                    tiles[ry][rx] = Tile::Floor;
+                }
+            }
+        }
+        // Place a niche marker in each small chamber
+        tiles[ny][nx + niche_w / 2] = Tile::Niche;
+
+        rooms.push(Room { x: nx, y: ny, w: niche_w, h: niche_h, purpose: RoomPurpose::BurialNiche });
+
+        // Connect to central tomb
+        carve_corridor(&mut tiles, nx + niche_w / 2, ny + niche_h / 2, cx, cy, rng);
+    }
+
+    // Mourning hall at entrance (top)
+    let mw = rng.gen_range(6..=8);
+    let mh = 3;
+    let mx = cx - mw / 2;
+    let my = 1;
+    for ry in my..my + mh {
+        for rx in mx..mx + mw {
+            if ry < FLOOR_HEIGHT && rx < FLOOR_WIDTH {
+                tiles[ry][rx] = Tile::Floor;
+            }
+        }
+    }
+    rooms.push(Room { x: mx, y: my, w: mw, h: mh, purpose: RoomPurpose::MourningHall });
+    carve_corridor(&mut tiles, mx + mw / 2, my + mh / 2, cx, cy, rng);
+
+    place_doors(&mut tiles, &rooms, rng);
+    place_stairs(&mut tiles, &rooms, depth, is_last);
+
+    Floor { depth, tiles, rooms }
+}
+
+/// TAXONOMICALLY AMBIGUOUS REGION: Organic, irregular shapes, no straight walls.
+fn generate_ambiguous_floor(depth: usize, is_last: bool, rng: &mut StdRng) -> Floor {
+    // Start with organic walls everywhere, carve irregular caverns
+    let mut tiles = vec![vec![Tile::OrganicWall; FLOOR_WIDTH]; FLOOR_HEIGHT];
+    let mut rooms = Vec::new();
+
+    // Use cellular automata to create organic cave shapes
+    // Start with random fill
+    let mut cave = vec![vec![false; FLOOR_WIDTH]; FLOOR_HEIGHT];
+    for y in 1..FLOOR_HEIGHT - 1 {
+        for x in 1..FLOOR_WIDTH - 1 {
+            cave[y][x] = rng.gen_bool(0.45);
+        }
+    }
+
+    // Run cellular automata smoothing (4 iterations)
+    for _ in 0..4 {
+        let mut next = vec![vec![false; FLOOR_WIDTH]; FLOOR_HEIGHT];
+        for y in 1..FLOOR_HEIGHT - 1 {
+            for x in 1..FLOOR_WIDTH - 1 {
+                let mut neighbors = 0;
+                for dy in -1i32..=1 {
+                    for dx in -1i32..=1 {
+                        if dy == 0 && dx == 0 { continue; }
+                        let ny = (y as i32 + dy) as usize;
+                        let nx = (x as i32 + dx) as usize;
+                        if cave[ny][nx] { neighbors += 1; }
+                    }
+                }
+                // B5678/S45678 rule — creates organic caves
+                next[y][x] = if cave[y][x] {
+                    neighbors >= 4
+                } else {
+                    neighbors >= 5
+                };
+            }
+        }
+        cave = next;
+    }
+
+    // Apply cave to tiles
+    for y in 0..FLOOR_HEIGHT {
+        for x in 0..FLOOR_WIDTH {
+            if cave[y][x] {
+                // Mix of different floor types for ambiguity
+                tiles[y][x] = match rng.gen_range(0..10) {
+                    0 => Tile::Water,
+                    1 => Tile::Ground,
+                    _ => Tile::Floor,
+                };
+            }
+        }
+    }
+
+    // Find connected open regions and label them as "rooms"
+    let cx = FLOOR_WIDTH / 2;
+    let cy = FLOOR_HEIGHT / 2;
+    // Place a few marker rooms at random open spots
+    let room_count = rng.gen_range(3..=5);
+    for i in 0..room_count {
+        let mut placed = false;
+        for _ in 0..100 {
+            let rx = rng.gen_range(3..FLOOR_WIDTH - 3);
+            let ry = rng.gen_range(2..FLOOR_HEIGHT - 2);
+            if tiles[ry][rx] == Tile::Floor {
+                let purpose = match rng.gen_range(0..3) {
+                    0 => RoomPurpose::Disputed,
+                    1 => RoomPurpose::Trophy,
+                    _ => RoomPurpose::Habitation,
+                };
+                rooms.push(Room { x: rx, y: ry, w: 3, h: 2, purpose });
+                placed = true;
+                break;
+            }
+        }
+        if !placed && i == 0 {
+            // Ensure at least one room exists by carving at center
+            for ry in cy.saturating_sub(1)..=(cy + 1).min(FLOOR_HEIGHT - 1) {
+                for rx in cx.saturating_sub(2)..=(cx + 2).min(FLOOR_WIDTH - 1) {
+                    tiles[ry][rx] = Tile::Floor;
+                }
+            }
+            rooms.push(Room { x: cx - 2, y: cy - 1, w: 5, h: 3, purpose: RoomPurpose::Disputed });
+        }
+    }
+
+    // Scatter some anomalous tiles — water, pits, focal points
+    for _ in 0..rng.gen_range(3..=8) {
+        let rx = rng.gen_range(1..FLOOR_WIDTH - 1);
+        let ry = rng.gen_range(1..FLOOR_HEIGHT - 1);
+        if tiles[ry][rx] == Tile::Floor {
+            tiles[ry][rx] = match rng.gen_range(0..4) {
+                0 => Tile::Water,
+                1 => Tile::Pit,
+                2 => Tile::FocalPoint,
+                _ => Tile::Niche,
+            };
+        }
+    }
+
+    place_stairs(&mut tiles, &rooms, depth, is_last);
+
+    Floor { depth, tiles, rooms }
+}
+
+/// ABANDONED INSTITUTION: Office grid like Annex but deteriorating.
+fn generate_abandoned_floor(depth: usize, is_last: bool, rng: &mut StdRng) -> Floor {
+    // Generate a clean annex floor first, then damage it
+    let mut floor = generate_annex_floor(depth, is_last, rng);
+
+    // Replace room purposes with abandoned variants
+    for room in &mut floor.rooms {
+        room.purpose = match rng.gen_range(0..5) {
+            0 => RoomPurpose::FormerOffice,
+            1 => RoomPurpose::CollapsedWing,
+            2 => RoomPurpose::ArchiveVault,
+            3 => RoomPurpose::FilingRoom,
+            _ => RoomPurpose::FormerOffice,
+        };
+    }
+
+    // Damage pass: break walls, scatter debris
+    for y in 0..FLOOR_HEIGHT {
+        for x in 0..FLOOR_WIDTH {
+            match floor.tiles[y][x] {
+                Tile::Wall => {
+                    // ~20% of walls break
+                    if rng.gen_bool(0.20) {
+                        floor.tiles[y][x] = if rng.gen_bool(0.6) { Tile::Rubble } else { Tile::Floor };
+                    }
+                }
+                Tile::Floor => {
+                    // ~8% of floor gets debris
+                    if rng.gen_bool(0.08) {
+                        floor.tiles[y][x] = Tile::Rubble;
+                    }
+                }
+                Tile::Door => {
+                    // ~30% of doors are broken
+                    if rng.gen_bool(0.30) {
+                        floor.tiles[y][x] = Tile::Floor;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Block off 1-2 rooms entirely (inaccessible — fill with wall/rubble)
+    let block_count = rng.gen_range(0..=2).min(floor.rooms.len().saturating_sub(2));
+    for _ in 0..block_count {
+        let room_idx = rng.gen_range(0..floor.rooms.len());
+        let room = &floor.rooms[room_idx];
+        for ry in room.y..room.y + room.h {
+            for rx in room.x..room.x + room.w {
+                if ry < FLOOR_HEIGHT && rx < FLOOR_WIDTH {
+                    floor.tiles[ry][rx] = if rng.gen_bool(0.4) { Tile::Rubble } else { Tile::Wall };
+                }
+            }
+        }
+    }
+
+    floor
+}
+
+/// Place stairs on a floor: up on non-first floors, down on non-last floors.
+fn place_stairs(tiles: &mut Vec<Vec<Tile>>, rooms: &[Room], depth: usize, is_last: bool) {
+    if depth > 0 {
+        if let Some(room) = rooms.first() {
+            let (cx, cy) = room.center();
+            if cy < FLOOR_HEIGHT && cx < FLOOR_WIDTH {
+                tiles[cy][cx] = Tile::StairUp;
+            }
+        }
+    }
+    if !is_last {
+        if let Some(room) = rooms.last() {
+            let (cx, cy) = room.center();
+            if cy < FLOOR_HEIGHT && cx < FLOOR_WIDTH {
+                tiles[cy][cx] = Tile::StairDown;
+            }
+        }
     }
 }
 
