@@ -2,26 +2,27 @@
 
 ## Current State
 - Phase: Phase 5 COMPLETE + post-phase polish
-- Last working feature: Demographic system (births, deaths, emigration, immigration)
+- Last working feature: Faction detail dossier screen
 - Build status: Compiles and runs cleanly (6 warnings, all pre-existing dead_code)
 
 ## What We Did
-- Implemented full demographic oscillation system:
-  1. **Births**: Settlements generate new agents periodically. Birth rate scales with local population (sqrt) and temporal_rate. New agents are fully generated (name, people, disposition). Prose reads as census registrations.
-  2. **Natural Death**: Replaced hard death cap at 36500 ticks with gradual mortality starting at age 50 (18250 ticks), ramping quadratically. Uses new NaturalDeath event type (distinct from AgentDied which is for violent/adventure deaths).
-  3. **Emigration**: Agents with high risk_tolerance, low institutional_loyalty, or high paranoia may leave the known world. Prose is suitably vague about destinations.
-  4. **Immigration**: New agents arrive from outside the known world (~1.5% chance per 10-tick check, scaled by temporal_rate). Arrive as adults at random settlements.
-- Added `next_agent_id` field to SimState for monotonically increasing agent IDs
-- Added 3 new EventTypes: AgentEmigrated, AgentImmigrated, NaturalDeath
-- Added 30+ prose templates across 3 new generators in prose_gen.rs
+- Added a full faction detail screen accessible by pressing Enter on any faction in the faction list overlay (Shift+F)
+- The dossier displays:
+  1. Faction name, type, and founding tick
+  2. Charter and doctrine (word-wrapped)
+  3. Institutional health assessment (Ascendant/Stable/Declining/Diminished/Defunct)
+  4. Scrollable member list (capped at 20, with "and X more")
+  5. Relationships with other factions (color-coded: green=Allied, white=Neutral, red=Rival, yellow=Disputed)
+  6. Artifacts held by faction members
+  7. Historical record from world annals + institution chronicle entries
+- Added text wrapping and truncation helpers (wrap_text, truncate_str) to prevent text overflow past overlay borders
+- ESC from detail returns to faction list at the correct position
+- Up/Down/PageUp/PageDown scroll the detail view
 
 ## Decisions Made
-- NaturalDeath is intentionally NOT a major event for era tracking — it's routine demographic change
-- NaturalDeath DOES contribute to tension (same as AgentDied)
-- Demographic checks run every 10 ticks to reduce per-tick overhead
-- Birth rate uses sqrt(local_pop) to avoid exponential growth in large settlements
-- Emigration samples ~20% of agents per check rather than iterating all
-- Immigration agents arrive as adults (age 10-50 years) with small chance of being adventurers
+- Used word-wrapping for long prose (charter, doctrine, annals, chronicle) and truncation for short fields (names, relationships) to keep text within overlay bounds
+- Multi-span colored lines were simplified to single-span truncated strings to prevent ratatui clipping issues
+- Health assessment thresholds: Ascendant (power>=80, members>=8), Stable (power>=50 or members>=5), Declining (power>=20 or members>=2), Diminished (below that), Defunct (0 members)
 
 ## Known Issues
 - Room purposes not yet referenced in prose generation (deferred from Phase 3)
@@ -41,3 +42,5 @@
 - Status message TTL counts down per frame (not per tick), so display duration is real-time consistent
 - Speed keybindings: 0/1/2/3 (not the old 1/5/2 scheme)
 - SESSION_NOTES.md should be fully rewritten each update, not appended to
+- Overlay enum variant for faction detail: FactionDetail(usize, usize) = (institution index, scroll offset)
+- wrap_text() and truncate_str() helpers live at the bottom of overlays.rs — reuse for any future overlays with long text

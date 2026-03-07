@@ -423,7 +423,7 @@ pub fn draw_faction_list(frame: &mut Frame, sim: &SimState, selected: usize) {
     }
 
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(" Up/Down=browse  ESC=close", Style::default().fg(Color::DarkGray))));
+    lines.push(Line::from(Span::styled(" Up/Down=browse  Enter=details  ESC=close", Style::default().fg(Color::DarkGray))));
 
     let block = Block::default()
         .title(" FACTIONS ")
@@ -432,6 +432,265 @@ pub fn draw_faction_list(frame: &mut Frame, sim: &SimState, selected: usize) {
 
     let widget = Paragraph::new(lines).block(block);
     frame.render_widget(widget, area);
+}
+
+/// Draw the faction detail dossier overlay (Enter from faction list).
+pub fn draw_faction_detail(frame: &mut Frame, sim: &SimState, inst_idx: usize, scroll: usize) {
+    let area = centered_rect(70, 85, frame.area());
+    frame.render_widget(Clear, area);
+
+    let inst = if inst_idx < sim.institutions.len() {
+        &sim.institutions[inst_idx]
+    } else {
+        return;
+    };
+
+    let inner_height = area.height.saturating_sub(4) as usize; // border + title + footer
+    // Available text width inside borders (2 border cols)
+    let max_w = area.width.saturating_sub(2) as usize;
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    // -- Header: name and type --
+    lines.push(Line::from(Span::styled(
+        truncate_str(&format!(" {} ", inst.name), max_w),
+        Style::default().fg(Color::Cyan),
+    )));
+    lines.push(Line::from(Span::styled(
+        truncate_str(
+            &format!(" Type: {}  |  Founded: tick {}", inst.kind.label(), inst.founded_tick),
+            max_w,
+        ),
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(Line::from(""));
+
+    // -- Charter / Doctrine --
+    lines.push(Line::from(Span::styled(" CHARTER", Style::default().fg(Color::Yellow))));
+    for wl in wrap_text(&format!("  {}", inst.charter), max_w) {
+        lines.push(Line::from(Span::styled(wl, Style::default().fg(Color::Gray))));
+    }
+    if inst.charter != inst.actual_function {
+        for wl in wrap_text(&format!("  (Actual function: {})", inst.actual_function), max_w) {
+            lines.push(Line::from(Span::styled(wl, Style::default().fg(Color::DarkGray))));
+        }
+    }
+    if !inst.doctrine.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(" DOCTRINE", Style::default().fg(Color::Yellow))));
+        for d in &inst.doctrine {
+            for wl in wrap_text(&format!("  - {}", d), max_w) {
+                lines.push(Line::from(Span::styled(wl, Style::default().fg(Color::Gray))));
+            }
+        }
+    }
+    lines.push(Line::from(""));
+
+    // -- Institutional Health --
+    lines.push(Line::from(Span::styled(" INSTITUTIONAL HEALTH", Style::default().fg(Color::Yellow))));
+    let member_count = inst.member_ids.iter()
+        .filter(|id| sim.agents.iter().any(|a| a.id == **id && a.alive))
+        .count();
+    let health_label = if member_count == 0 {
+        ("Defunct", Color::Red)
+    } else if inst.power >= 80 && member_count >= 8 {
+        ("Ascendant", Color::Green)
+    } else if inst.power >= 50 || member_count >= 5 {
+        ("Stable", Color::White)
+    } else if inst.power >= 20 || member_count >= 2 {
+        ("Declining", Color::Yellow)
+    } else {
+        ("Diminished", Color::Red)
+    };
+    lines.push(Line::from(Span::styled(
+        truncate_str(
+            &format!("  Status: {}  |  Power: {}  |  Members: {}", health_label.0, inst.power, member_count),
+            max_w,
+        ),
+        Style::default().fg(health_label.1),
+    )));
+    lines.push(Line::from(""));
+
+    // -- Members --
+    lines.push(Line::from(Span::styled(
+        format!(" MEMBERS ({})", member_count),
+        Style::default().fg(Color::Yellow),
+    )));
+    let mut member_lines = 0;
+    for &mid in &inst.member_ids {
+        if let Some(agent) = sim.agents.iter().find(|a| a.id == mid && a.alive) {
+            lines.push(Line::from(Span::styled(
+                truncate_str(&format!("  {}", agent.display_name()), max_w),
+                Style::default().fg(Color::White),
+            )));
+            member_lines += 1;
+            if member_lines >= 20 {
+                let remaining = inst.member_ids.iter()
+                    .filter(|id| sim.agents.iter().any(|a| a.id == **id && a.alive))
+                    .count() - 20;
+                if remaining > 0 {
+                    lines.push(Line::from(Span::styled(
+                        format!("  ... and {} more", remaining),
+                        Style::default().fg(Color::DarkGray),
+                    )));
+                }
+                break;
+            }
+        }
+    }
+    if member_count == 0 {
+        lines.push(Line::from(Span::styled("  No living members.", Style::default().fg(Color::DarkGray))));
+    }
+    lines.push(Line::from(""));
+
+    // -- Relationships --
+    lines.push(Line::from(Span::styled(" RELATIONSHIPS", Style::default().fg(Color::Yellow))));
+    if inst.relationships.is_empty() {
+        lines.push(Line::from(Span::styled("  No formal relations on record.", Style::default().fg(Color::DarkGray))));
+    } else {
+        for (&other_id, rel) in &inst.relationships {
+            if let Some(other) = sim.institutions.iter().find(|i| i.id == other_id) {
+                let rel_color = match rel {
+                    crate::sim::institution::InstitutionRelationship::Allied => Color::Green,
+                    crate::sim::institution::InstitutionRelationship::Neutral => Color::White,
+                    crate::sim::institution::InstitutionRelationship::Rival => Color::Red,
+                    crate::sim::institution::InstitutionRelationship::Disputed(_) => Color::Yellow,
+                };
+                lines.push(Line::from(Span::styled(
+                    truncate_str(&format!("  {} — {}", other.name, rel.label()), max_w),
+                    Style::default().fg(rel_color),
+                )));
+            }
+        }
+    }
+    lines.push(Line::from(""));
+
+    // -- Artifacts held by faction members --
+    lines.push(Line::from(Span::styled(" ARTIFACTS", Style::default().fg(Color::Yellow))));
+    let mut artifact_count = 0;
+    for art in &sim.artifacts {
+        // Check if held by a member of this institution
+        let held_by_member = inst.member_ids.iter().any(|mid| {
+            sim.agents.iter().any(|a| a.id == *mid && a.held_artifacts.contains(&art.id))
+        });
+        if held_by_member {
+            if let Some(holder) = sim.agents.iter().find(|a| a.held_artifacts.contains(&art.id)) {
+                lines.push(Line::from(Span::styled(
+                    truncate_str(
+                        &format!("  {} ({}) — held by {}", art.name, art.kind.label(), holder.display_name()),
+                        max_w,
+                    ),
+                    Style::default().fg(Color::LightYellow),
+                )));
+                artifact_count += 1;
+            }
+        }
+    }
+    if artifact_count == 0 {
+        lines.push(Line::from(Span::styled("  None on record.", Style::default().fg(Color::DarkGray))));
+    }
+    lines.push(Line::from(""));
+
+    // -- Notable events from annals --
+    lines.push(Line::from(Span::styled(" HISTORICAL RECORD", Style::default().fg(Color::Yellow))));
+    let mut history_count = 0;
+    for entry in &sim.annals {
+        if entry.notable_institutions.iter().any(|n| n == &inst.name) {
+            for wl in wrap_text(&format!("  [{}] {}", entry.era_name, entry.defining_event), max_w) {
+                lines.push(Line::from(Span::styled(wl, Style::default().fg(Color::Gray))));
+            }
+            history_count += 1;
+        }
+    }
+    // Also show recent chronicle entries
+    let chronicle_start = inst.chronicle.len().saturating_sub(10);
+    for ch in &inst.chronicle[chronicle_start..] {
+        for wl in wrap_text(&format!("  {}", ch), max_w) {
+            lines.push(Line::from(Span::styled(wl, Style::default().fg(Color::DarkGray))));
+        }
+        history_count += 1;
+    }
+    if history_count == 0 {
+        lines.push(Line::from(Span::styled("  No notable events recorded.", Style::default().fg(Color::DarkGray))));
+    }
+    lines.push(Line::from(""));
+
+    // -- Footer --
+    lines.push(Line::from(Span::styled(" Up/Down=scroll  ESC=back", Style::default().fg(Color::DarkGray))));
+
+    // Apply scroll
+    let total_lines = lines.len();
+    let effective_scroll = scroll.min(total_lines.saturating_sub(inner_height));
+    let visible_lines: Vec<Line> = lines.into_iter()
+        .skip(effective_scroll)
+        .take(inner_height)
+        .collect();
+
+    let block = Block::default()
+        .title(" FACTION DOSSIER ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow));
+
+    let widget = Paragraph::new(visible_lines).block(block);
+    frame.render_widget(widget, area);
+}
+
+/// Truncate a string to fit within `max_width` columns, adding "..." if truncated.
+fn truncate_str(s: &str, max_width: usize) -> String {
+    if max_width <= 3 {
+        return s.chars().take(max_width).collect();
+    }
+    let char_count: usize = s.chars().count();
+    if char_count <= max_width {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max_width - 3).collect();
+        format!("{}...", truncated)
+    }
+}
+
+/// Word-wrap a string into multiple lines that fit within `max_width` columns.
+/// Preserves leading whitespace on the first line; continuation lines get the same indent.
+fn wrap_text(s: &str, max_width: usize) -> Vec<String> {
+    if max_width == 0 {
+        return vec![s.to_string()];
+    }
+    let char_count: usize = s.chars().count();
+    if char_count <= max_width {
+        return vec![s.to_string()];
+    }
+    // Determine indent from leading spaces
+    let indent_len = s.chars().take_while(|c| *c == ' ').count();
+    let indent: String = " ".repeat(indent_len.min(max_width / 2));
+    let cont_indent = format!("{}  ", indent); // continuation gets 2 extra spaces
+
+    let mut result = Vec::new();
+    let mut current_line = String::new();
+    let mut is_first = true;
+
+    for word in s.split_whitespace() {
+        if current_line.is_empty() {
+            let pfx = if is_first { &indent } else { &cont_indent };
+            current_line = format!("{}{}", pfx, word);
+        } else {
+            let test_len = current_line.chars().count() + 1 + word.chars().count();
+            if test_len > max_width {
+                result.push(current_line);
+                current_line = format!("{}{}", cont_indent, word);
+                is_first = false;
+            } else {
+                current_line.push(' ');
+                current_line.push_str(word);
+            }
+        }
+    }
+    if !current_line.is_empty() {
+        result.push(current_line);
+    }
+    if result.is_empty() {
+        result.push(String::new());
+    }
+    result
 }
 
 /// Draw the quit confirmation overlay (Q key — return to menu prompt).

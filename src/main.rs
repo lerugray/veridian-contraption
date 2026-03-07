@@ -544,6 +544,7 @@ fn handle_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifiers) 
         Overlay::AgentSearch(_, _) => { handle_search_input(sim, key); InputResult::Continue }
         Overlay::AgentList(_) => { handle_agent_list_input(sim, key); InputResult::Continue }
         Overlay::FactionList(_) => { handle_faction_list_input(sim, key); InputResult::Continue }
+        Overlay::FactionDetail(_, _) => { handle_faction_detail_input(sim, key); InputResult::Continue }
         Overlay::Help => { if matches!(key, KeyCode::Esc | KeyCode::Char('?')) { sim.overlay = Overlay::None; } InputResult::Continue }
         Overlay::MapLegend => { if matches!(key, KeyCode::Esc | KeyCode::Char('l')) { sim.overlay = Overlay::None; } InputResult::Continue }
         Overlay::SiteList(_) => { handle_site_list_input(sim, key); InputResult::Continue }
@@ -947,6 +948,42 @@ fn handle_faction_list_input(sim: &mut SimState, key: KeyCode) {
         }
         KeyCode::Down => {
             sim.overlay = Overlay::FactionList((selected + 1).min(max_idx));
+        }
+        KeyCode::Enter => {
+            if let Some(&idx) = living.get(selected) {
+                sim.overlay = Overlay::FactionDetail(idx, 0);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Input handling for the faction detail overlay.
+fn handle_faction_detail_input(sim: &mut SimState, key: KeyCode) {
+    let (inst_idx, scroll) = if let Overlay::FactionDetail(idx, s) = sim.overlay {
+        (idx, s)
+    } else {
+        return;
+    };
+
+    match key {
+        KeyCode::Esc => {
+            // Return to faction list — find this institution's position in the living list
+            let living = sim.living_institution_indices();
+            let list_pos = living.iter().position(|&i| i == inst_idx).unwrap_or(0);
+            sim.overlay = Overlay::FactionList(list_pos);
+        }
+        KeyCode::Up => {
+            sim.overlay = Overlay::FactionDetail(inst_idx, scroll.saturating_sub(1));
+        }
+        KeyCode::Down => {
+            sim.overlay = Overlay::FactionDetail(inst_idx, scroll + 1);
+        }
+        KeyCode::PageUp => {
+            sim.overlay = Overlay::FactionDetail(inst_idx, scroll.saturating_sub(10));
+        }
+        KeyCode::PageDown => {
+            sim.overlay = Overlay::FactionDetail(inst_idx, scroll + 10);
         }
         _ => {}
     }

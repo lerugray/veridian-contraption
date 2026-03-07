@@ -81,6 +81,9 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
         Overlay::FactionList(selected) => {
             overlays::draw_faction_list(frame, sim, *selected);
         }
+        Overlay::FactionDetail(inst_idx, scroll) => {
+            overlays::draw_faction_detail(frame, sim, *inst_idx, *scroll);
+        }
         Overlay::FollowSelect(selected) => {
             overlays::draw_follow_select(frame, *selected);
         }

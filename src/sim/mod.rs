@@ -118,6 +118,8 @@ pub enum Overlay {
     QuitConfirm(usize),
     /// Eschaton confirmation screen. (selected option: 0=confirm, 1=cancel)
     EschatonConfirm(usize),
+    /// Faction detail dossier. (institution index into institutions vec, scroll offset)
+    FactionDetail(usize, usize),
 }
 
 /// Serializable snapshot of the simulation state for save/load.
