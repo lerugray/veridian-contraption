@@ -120,6 +120,8 @@ pub enum Overlay {
     EschatonConfirm(usize),
     /// Faction detail dossier. (institution index into institutions vec, scroll offset)
     FactionDetail(usize, usize),
+    /// Viewing a settlement interior. (settlement index into world.settlements vec)
+    SettlementView(usize),
 }
 
 /// Serializable snapshot of the simulation state for save/load.

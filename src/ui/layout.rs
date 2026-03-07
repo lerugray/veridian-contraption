@@ -42,7 +42,7 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
         ])
         .split(chunks[0]);
 
-    // If viewing a site (or an overlay opened from site view), draw site floor instead of world map
+    // If viewing a site or settlement (or an overlay opened from one), draw floor plan instead of world map
     let site_view_info = if let Overlay::SiteView(si, fi) = &sim.overlay {
         Some((*si, *fi))
     } else if let Some(pre) = &sim.pre_overlay {
@@ -55,8 +55,22 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
         None
     };
 
+    let settlement_view_info = if let Overlay::SettlementView(si) = &sim.overlay {
+        Some(*si)
+    } else if let Some(pre) = &sim.pre_overlay {
+        if let Overlay::SettlementView(si) = pre.as_ref() {
+            Some(*si)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     if let Some((site_idx, floor_idx)) = site_view_info {
         draw_site_panel(frame, panels[0], sim, site_idx, floor_idx);
+    } else if let Some(settle_idx) = settlement_view_info {
+        draw_settlement_panel(frame, panels[0], sim, settle_idx);
     } else {
         draw_map_panel(frame, panels[0], sim);
     }
@@ -116,6 +130,9 @@ pub fn draw_main_layout(frame: &mut Frame, sim: &SimState) {
         }
         Overlay::SiteView(_, _) => {
             // Site view replaces the map panel, handled above — no popup overlay needed
+        }
+        Overlay::SettlementView(_) => {
+            // Settlement view replaces the map panel, handled above — no popup overlay needed
         }
         Overlay::Annals(scroll) => {
             overlays::draw_annals(frame, sim, *scroll);
@@ -572,6 +589,92 @@ fn draw_site_panel(frame: &mut Frame, area: Rect, sim: &SimState, site_idx: usiz
     frame.render_widget(widget, area);
 }
 
+fn draw_settlement_panel(frame: &mut Frame, area: Rect, sim: &SimState, settle_idx: usize) {
+    let settlement = match sim.world.settlements.get(settle_idx) {
+        Some(s) => s,
+        None => {
+            let block = Block::default().title(" SETTLEMENT ").borders(Borders::ALL);
+            frame.render_widget(Paragraph::new("Settlement not found.").block(block), area);
+            return;
+        }
+    };
+    let floor = match &settlement.floor {
+        Some(f) => f,
+        None => {
+            let block = Block::default().title(format!(" {} ", settlement.name)).borders(Borders::ALL);
+            frame.render_widget(Paragraph::new("No floor plan available.").block(block), area);
+            return;
+        }
+    };
+
+    let size_label = match settlement.size {
+        crate::sim::world::SettlementSize::Hamlet => "Hamlet",
+        crate::sim::world::SettlementSize::Town => "Town",
+        crate::sim::world::SettlementSize::City => "City",
+    };
+    let title = format!(" {} ({}) [ESC=back] ", settlement.name, size_label);
+
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Rgb(230, 210, 160))); // warm settlement color
+
+    // Find agents at this settlement's coordinates
+    let agent_positions: Vec<(usize, usize, usize)> = sim.agents.iter()
+        .filter(|a| a.alive && a.x == settlement.x as u32 && a.y == settlement.y as u32)
+        .map(|a| {
+            let room_idx = (a.id as usize) % floor.rooms.len().max(1);
+            if let Some(room) = floor.rooms.get(room_idx) {
+                let (cx, cy) = room.center();
+                (cx, cy, a.people_id)
+            } else {
+                (FLOOR_WIDTH / 2, FLOOR_HEIGHT / 2, a.people_id)
+            }
+        })
+        .collect();
+
+    let inner_w = area.width.saturating_sub(2) as usize;
+    let inner_h = area.height.saturating_sub(2) as usize;
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    let col_base = inner_w / FLOOR_WIDTH;
+    let col_extra = inner_w % FLOOR_WIDTH;
+    let row_base = inner_h / FLOOR_HEIGHT;
+    let row_extra = inner_h % FLOOR_HEIGHT;
+
+    for y in 0..FLOOR_HEIGHT {
+        let row_repeats = if y < row_extra { row_base + 1 } else { row_base };
+        if row_repeats == 0 {
+            continue;
+        }
+
+        let spans: Vec<Span> = (0..FLOOR_WIDTH)
+            .map(|x| {
+                let w = if x < col_extra { col_base + 1 } else { col_base };
+
+                if let Some((_, _, people_id)) = agent_positions.iter().find(|(ax, ay, _)| *ax == x && *ay == y) {
+                    let color = PEOPLE_COLORS[people_id % PEOPLE_COLORS.len()];
+                    let s: String = std::iter::repeat('@').take(w.max(1)).collect();
+                    Span::styled(s, Style::default().fg(color))
+                } else {
+                    let tile = floor.tiles[y][x];
+                    let s: String = std::iter::repeat(tile.glyph()).take(w.max(1)).collect();
+                    Span::styled(s, Style::default().fg(tile.color()))
+                }
+            })
+            .collect();
+
+        let line = Line::from(spans);
+        for _ in 0..row_repeats {
+            lines.push(line.clone());
+        }
+    }
+
+    let widget = Paragraph::new(lines).block(block);
+    frame.render_widget(widget, area);
+}
+
 fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
     // Eschaton flash takes priority over everything
     if sim.eschaton_flash > 0 {
@@ -608,9 +711,24 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
     } else {
         None
     };
+    // Also check for settlement view
+    let settlement_view_for_status = if let Overlay::SettlementView(si) = &sim.overlay {
+        Some(*si)
+    } else if let Some(pre) = &sim.pre_overlay {
+        if let Overlay::SettlementView(si) = pre.as_ref() { Some(*si) } else { None }
+    } else {
+        None
+    };
+
     let site_hint = if let Some((si, fi)) = site_view_for_status {
         if let Some(site) = sim.sites.get(si) {
             format!("  |  {} (F{})", site.name, fi + 1)
+        } else {
+            String::new()
+        }
+    } else if let Some(si) = settlement_view_for_status {
+        if let Some(settle) = sim.world.settlements.get(si) {
+            format!("  |  {} (settlement)", settle.name)
         } else {
             String::new()
         }

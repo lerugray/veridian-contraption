@@ -1,6 +1,8 @@
 use ratatui::style::Color;
 use serde::{Deserialize, Serialize};
 
+use crate::sim::site::Floor;
+
 /// Width and height of the world map grid.
 pub const MAP_WIDTH: usize = 60;
 pub const MAP_HEIGHT: usize = 30;
@@ -65,6 +67,9 @@ pub struct Settlement {
     pub size: SettlementSize,
     pub x: usize,
     pub y: usize,
+    /// Floor plan for viewing the settlement interior.
+    #[serde(default)]
+    pub floor: Option<Floor>,
 }
 
 /// A people/culture inhabiting the world.

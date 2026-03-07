@@ -850,28 +850,28 @@ pub fn draw_follow_institution_pick(frame: &mut Frame, sim: &SimState, selected:
     frame.render_widget(widget, area);
 }
 
-/// Draw the site list overlay (s key — browsable list of all sites).
+/// Draw the site list overlay (s key — browsable list of all settlements and sites).
 pub fn draw_site_list(frame: &mut Frame, sim: &SimState, selected: usize) {
     let area = centered_rect(70, 65, frame.area());
     frame.render_widget(Clear, area);
 
     let inner_height = area.height.saturating_sub(5) as usize;
 
+    let settlement_count = sim.world.settlements.len();
+    let total = settlement_count + sim.sites.len();
+
     let mut lines: Vec<Line> = vec![
         Line::from(Span::styled(
-            format!(" {} sites discovered", sim.sites.len()),
+            format!(" {} settlements, {} sites", settlement_count, sim.sites.len()),
             Style::default().fg(Color::White),
         )),
         Line::from(""),
     ];
 
-    if sim.sites.is_empty() {
-        lines.push(Line::from(Span::styled(" No sites discovered.", Style::default().fg(Color::DarkGray))));
+    if total == 0 {
+        lines.push(Line::from(Span::styled(" Nothing discovered.", Style::default().fg(Color::DarkGray))));
     } else {
-        // Each entry takes 2 lines (name + detail), selected takes 3 (+ origin).
-        // Budget lines for the scrollable area.
-        let available_lines = inner_height.saturating_sub(4); // header + footer
-        // Estimate ~3 lines per entry to be safe
+        let available_lines = inner_height.saturating_sub(4);
         let entries_per_page = (available_lines / 3).max(1);
 
         let scroll_start = if selected >= entries_per_page {
@@ -880,85 +880,130 @@ pub fn draw_site_list(frame: &mut Frame, sim: &SimState, selected: usize) {
             0
         };
 
-        // Render entries, tracking how many display lines we've used
         let mut lines_used: usize = 0;
         let mut last_shown = scroll_start;
 
-        for i in scroll_start..sim.sites.len() {
-            let site = &sim.sites[i];
+        for i in scroll_start..total {
             let is_selected = i == selected;
             let entry_lines = if is_selected { 3 } else { 2 };
 
-            // Stop if we'd overflow the available space
             if lines_used + entry_lines > available_lines {
                 break;
             }
 
             let prefix = if is_selected { " > " } else { "   " };
-            let name_color = if is_selected { Color::Green } else { site.kind.map_color() };
 
-            lines.push(Line::from(vec![
-                Span::styled(prefix, Style::default()),
-                Span::styled(&site.name, Style::default().fg(name_color)),
-            ]));
+            if i < settlement_count {
+                // Settlement entry
+                let settle = &sim.world.settlements[i];
+                let size_label = match settle.size {
+                    crate::sim::world::SettlementSize::Hamlet => "Hamlet",
+                    crate::sim::world::SettlementSize::Town => "Town",
+                    crate::sim::world::SettlementSize::City => "City",
+                };
+                let name_color = if is_selected { Color::Green } else { Color::Rgb(230, 210, 160) };
 
-            let faction_label = if let Some(fid) = site.controlling_faction {
-                sim.institutions.iter()
-                    .find(|inst| inst.id == fid)
-                    .map(|inst| format!("Controlled by {}", inst.name))
-                    .unwrap_or_else(|| "Unclaimed".to_string())
+                lines.push(Line::from(vec![
+                    Span::styled(prefix, Style::default()),
+                    Span::styled(&settle.name, Style::default().fg(name_color)),
+                ]));
+
+                let pop = sim.agents.iter()
+                    .filter(|a| a.alive && a.x == settle.x as u32 && a.y == settle.y as u32)
+                    .count();
+
+                let building_count = settle.floor.as_ref().map(|f| f.rooms.len()).unwrap_or(0);
+
+                let detail = format!(
+                    "     {} | ({},{}) | {} building{} | {} resident{}",
+                    size_label,
+                    settle.x, settle.y,
+                    building_count,
+                    if building_count == 1 { "" } else { "s" },
+                    pop,
+                    if pop == 1 { "" } else { "s" },
+                );
+                lines.push(Line::from(Span::styled(detail, Style::default().fg(Color::DarkGray))));
+
+                if is_selected {
+                    // Show building types as expanded detail
+                    if let Some(floor) = &settle.floor {
+                        let purposes: Vec<&str> = floor.rooms.iter().map(|r| r.purpose.label()).collect();
+                        let desc = if purposes.is_empty() {
+                            "No buildings.".to_string()
+                        } else {
+                            format!("     Buildings: {}", purposes.join(", "))
+                        };
+                        lines.push(Line::from(Span::styled(desc, Style::default().fg(Color::DarkGray))));
+                    } else {
+                        lines.push(Line::from(Span::styled("     No floor plan.", Style::default().fg(Color::DarkGray))));
+                    }
+                }
             } else {
-                "Unclaimed".to_string()
-            };
+                // Site entry
+                let site_idx = i - settlement_count;
+                let site = &sim.sites[site_idx];
+                let name_color = if is_selected { Color::Green } else { site.kind.map_color() };
 
-            let artifact_count = site.artifacts.len();
-            let artifact_label = if artifact_count > 0 {
-                format!(" | {} artifact{}", artifact_count, if artifact_count == 1 { "" } else { "s" })
-            } else {
-                String::new()
-            };
+                lines.push(Line::from(vec![
+                    Span::styled(prefix, Style::default()),
+                    Span::styled(&site.name, Style::default().fg(name_color)),
+                ]));
 
-            let inhab_count = site.inhabitants.len();
-            let inhab_label = if inhab_count > 0 {
-                format!(" | {} inhabitant{}", inhab_count, if inhab_count == 1 { "" } else { "s" })
-            } else {
-                String::new()
-            };
+                let faction_label = if let Some(fid) = site.controlling_faction {
+                    sim.institutions.iter()
+                        .find(|inst| inst.id == fid)
+                        .map(|inst| format!("Controlled by {}", inst.name))
+                        .unwrap_or_else(|| "Unclaimed".to_string())
+                } else {
+                    "Unclaimed".to_string()
+                };
 
-            let detail = format!(
-                "     {} | ({},{}) | {} floor{} | {}{}{}",
-                site.kind.label(),
-                site.grid_x, site.grid_y,
-                site.floors.len(),
-                if site.floors.len() == 1 { "" } else { "s" },
-                faction_label,
-                artifact_label,
-                inhab_label,
-            );
-            lines.push(Line::from(Span::styled(
-                detail,
-                Style::default().fg(Color::DarkGray),
-            )));
+                let artifact_count = site.artifacts.len();
+                let artifact_label = if artifact_count > 0 {
+                    format!(" | {} artifact{}", artifact_count, if artifact_count == 1 { "" } else { "s" })
+                } else {
+                    String::new()
+                };
 
-            if is_selected {
-                lines.push(Line::from(Span::styled(
-                    format!("     {}", site.origin),
-                    Style::default().fg(Color::DarkGray),
-                )));
+                let inhab_count = site.inhabitants.len();
+                let inhab_label = if inhab_count > 0 {
+                    format!(" | {} inhabitant{}", inhab_count, if inhab_count == 1 { "" } else { "s" })
+                } else {
+                    String::new()
+                };
+
+                let detail = format!(
+                    "     {} | ({},{}) | {} floor{} | {}{}{}",
+                    site.kind.label(),
+                    site.grid_x, site.grid_y,
+                    site.floors.len(),
+                    if site.floors.len() == 1 { "" } else { "s" },
+                    faction_label,
+                    artifact_label,
+                    inhab_label,
+                );
+                lines.push(Line::from(Span::styled(detail, Style::default().fg(Color::DarkGray))));
+
+                if is_selected {
+                    lines.push(Line::from(Span::styled(
+                        format!("     {}", site.origin),
+                        Style::default().fg(Color::DarkGray),
+                    )));
+                }
             }
 
             lines_used += entry_lines;
             last_shown = i + 1;
         }
 
-        if last_shown < sim.sites.len() {
+        if last_shown < total {
             lines.push(Line::from(Span::styled(
-                format!("  ... {} more below", sim.sites.len() - last_shown),
+                format!("  ... {} more below", total - last_shown),
                 Style::default().fg(Color::DarkGray),
             )));
         }
         if scroll_start > 0 {
-            // Insert a "more above" hint after the header
             lines.insert(2, Line::from(Span::styled(
                 format!("  ... {} above", scroll_start),
                 Style::default().fg(Color::DarkGray),
@@ -967,12 +1012,12 @@ pub fn draw_site_list(frame: &mut Frame, sim: &SimState, selected: usize) {
     }
 
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(" Up/Down=browse  ENTER=view site  ESC=close", Style::default().fg(Color::DarkGray))));
+    lines.push(Line::from(Span::styled(" Up/Down=browse  ENTER=view  ESC=close", Style::default().fg(Color::DarkGray))));
 
     let block = Block::default()
-        .title(" SITES ")
+        .title(" SETTLEMENTS & SITES ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Red));
+        .border_style(Style::default().fg(Color::Rgb(200, 170, 100)));
 
     let widget = Paragraph::new(lines).block(block);
     frame.render_widget(widget, area);

@@ -611,7 +611,8 @@ pub fn execute_geological_argument(
                     1 => SettlementSize::Town,
                     _ => SettlementSize::City,
                 };
-                settlements.push(Settlement { name, size, x: nx, y: ny });
+                let floor = Some(crate::gen::dungeon_gen::generate_settlement_floor(&size, rng));
+                settlements.push(Settlement { name, size, x: nx, y: ny, floor });
                 break;
             }
         }

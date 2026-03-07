@@ -95,6 +95,13 @@ pub enum RoomPurpose {
     Habitation,
     Trophy,
     Disputed,
+    // Settlement-specific civic purposes
+    Tavern,
+    Market,
+    Temple,
+    Residential,
+    Warehouse,
+    Garrison,
 }
 
 impl RoomPurpose {
@@ -106,6 +113,12 @@ impl RoomPurpose {
             RoomPurpose::Habitation => "Habitation",
             RoomPurpose::Trophy => "Trophy",
             RoomPurpose::Disputed => "Disputed",
+            RoomPurpose::Tavern => "Tavern",
+            RoomPurpose::Market => "Market",
+            RoomPurpose::Temple => "Temple",
+            RoomPurpose::Residential => "Residential",
+            RoomPurpose::Warehouse => "Warehouse",
+            RoomPurpose::Garrison => "Garrison",
         }
     }
 }

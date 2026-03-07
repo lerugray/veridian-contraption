@@ -136,7 +136,7 @@ fn run_app(
         if let AppMode::InGame = &mode {
             if let Some(ref mut s) = sim {
                 s.frame_count = frame_count;
-                if s.overlay == Overlay::None || matches!(s.overlay, Overlay::SiteView(_, _)) {
+                if s.overlay == Overlay::None || matches!(s.overlay, Overlay::SiteView(_, _)) || matches!(s.overlay, Overlay::SettlementView(_)) {
                     s.step_frame(frame_count);
                 }
 
@@ -569,6 +569,7 @@ fn handle_game_input(sim: &mut SimState, key: KeyCode, modifiers: KeyModifiers) 
         Overlay::SaveNameInput(_) => { handle_save_name_input(sim, key); InputResult::Continue }
         Overlay::QuitConfirm(_) => handle_quit_confirm_input(sim, key),
         Overlay::EschatonConfirm(_) => { handle_eschaton_confirm_input(sim, key); InputResult::Continue }
+        Overlay::SettlementView(_) => { handle_settlement_view_input(sim, key); InputResult::Continue }
     }
 }
 
@@ -867,14 +868,23 @@ fn handle_follow_institution_pick_input(sim: &mut SimState, key: KeyCode) {
 /// Input handling for the site list overlay (s key).
 fn handle_site_list_input(sim: &mut SimState, key: KeyCode) {
     let selected = if let Overlay::SiteList(sel) = sim.overlay { sel } else { return; };
-    let max_idx = sim.sites.len().saturating_sub(1);
+    let settlement_count = sim.world.settlements.len();
+    let total = settlement_count + sim.sites.len();
+    let max_idx = total.saturating_sub(1);
     match key {
         KeyCode::Esc => { sim.overlay = Overlay::None; }
         KeyCode::Up => { sim.overlay = Overlay::SiteList(selected.saturating_sub(1)); }
         KeyCode::Down => { sim.overlay = Overlay::SiteList((selected + 1).min(max_idx)); }
         KeyCode::Enter => {
-            if selected < sim.sites.len() {
-                sim.overlay = Overlay::SiteView(selected, 0);
+            if selected < settlement_count {
+                // Settlement selected
+                sim.overlay = Overlay::SettlementView(selected);
+            } else {
+                // Site selected
+                let site_idx = selected - settlement_count;
+                if site_idx < sim.sites.len() {
+                    sim.overlay = Overlay::SiteView(site_idx, 0);
+                }
             }
         }
         _ => {}
@@ -889,7 +899,7 @@ fn handle_site_view_input(sim: &mut SimState, key: KeyCode) {
         return;
     };
     match key {
-        KeyCode::Esc => { sim.overlay = Overlay::None; }
+        KeyCode::Esc => { sim.overlay = Overlay::SiteList(0); }
         // Navigate floors with < and >
         KeyCode::Char('<') | KeyCode::Char(',') => {
             if floor_idx > 0 {
@@ -927,6 +937,45 @@ fn handle_site_view_input(sim: &mut SimState, key: KeyCode) {
         }
         KeyCode::Char('l') => {
             sim.pre_overlay = Some(Box::new(Overlay::SiteView(site_idx, floor_idx)));
+            sim.overlay = Overlay::MapLegend;
+        }
+        _ => {}
+    }
+}
+
+/// Input handling for the settlement view (viewing a settlement floor plan).
+fn handle_settlement_view_input(sim: &mut SimState, key: KeyCode) {
+    let settle_idx = if let Overlay::SettlementView(si) = sim.overlay {
+        si
+    } else {
+        return;
+    };
+    match key {
+        KeyCode::Esc => { sim.overlay = Overlay::SiteList(0); }
+        // Simulation speed controls while viewing
+        KeyCode::Char(' ') => {
+            if sim.speed == SimSpeed::Paused {
+                sim.speed = sim.pre_pause_speed.take().unwrap_or(SimSpeed::Run1x);
+            } else {
+                sim.pre_pause_speed = Some(sim.speed);
+                sim.speed = SimSpeed::Paused;
+            }
+        }
+        KeyCode::Char('0') => sim.speed = SimSpeed::Run05x,
+        KeyCode::Char('1') => sim.speed = SimSpeed::Run1x,
+        KeyCode::Char('2') => sim.speed = SimSpeed::Run5x,
+        KeyCode::Char('3') => sim.speed = SimSpeed::Run10x,
+        KeyCode::Char('.') => {
+            if sim.speed == SimSpeed::Paused {
+                sim.tick();
+            }
+        }
+        KeyCode::Char('?') => {
+            sim.pre_overlay = Some(Box::new(Overlay::SettlementView(settle_idx)));
+            sim.overlay = Overlay::Help;
+        }
+        KeyCode::Char('l') => {
+            sim.pre_overlay = Some(Box::new(Overlay::SettlementView(settle_idx)));
             sim.overlay = Overlay::MapLegend;
         }
         _ => {}

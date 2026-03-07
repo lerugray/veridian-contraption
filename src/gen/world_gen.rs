@@ -108,7 +108,7 @@ pub fn generate_world(seed: u64, flavor: WorldFlavor) -> (World, Vec<Agent>, Vec
     let mut settlements = place_settlements(&terrain, &mut rng);
     let peoples = generate_peoples(&mut rng, &phonemes);
 
-    // Name settlements using phoneme sets from peoples
+    // Name settlements and generate floor plans
     for settlement in &mut settlements {
         let people_id = rng.gen_range(0..peoples.len());
         settlement.name = name_gen::generate_settlement_name(
@@ -116,6 +116,7 @@ pub fn generate_world(seed: u64, flavor: WorldFlavor) -> (World, Vec<Agent>, Vec
             peoples[people_id].phoneme_set,
             &mut rng,
         );
+        settlement.floor = Some(dungeon_gen::generate_settlement_floor(&settlement.size, &mut rng));
     }
 
     let mut agents = generate_agents(&settlements, &peoples, &phonemes, &mut rng);
@@ -369,7 +370,7 @@ fn place_settlements(terrain: &[Vec<Terrain>], rng: &mut StdRng) -> Vec<Settleme
         // Placeholder name — replaced after peoples are generated
         let name = format!("Settlement_{}", settlements.len() + 1);
 
-        settlements.push(Settlement { name, size, x, y });
+        settlements.push(Settlement { name, size, x, y, floor: None });
     }
 
     settlements
