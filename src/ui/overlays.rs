@@ -138,6 +138,34 @@ pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize)
         lines.push(Line::from(Span::styled(" AFFILIATIONS: None", Style::default().fg(Color::DarkGray))));
     }
 
+    // Relationships
+    let active_rels: Vec<_> = agent.relationships.iter()
+        .filter(|r| sim.agents.iter().any(|a| a.id == r.other_id && a.alive))
+        .collect();
+    if !active_rels.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(" RELATIONSHIPS", Style::default().fg(Color::White))));
+        for rel in &active_rels {
+            let other_name = sim.agents.iter()
+                .find(|a| a.id == rel.other_id)
+                .map(|a| a.display_name())
+                .unwrap_or_else(|| "unknown".to_string());
+            let intensity_str = match rel.intensity {
+                1 => "",
+                2 => " ++",
+                _ => " +++",
+            };
+            lines.push(Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(other_name, Style::default().fg(Color::Cyan)),
+                Span::styled(
+                    format!(" — {}{}", rel.kind.label(), intensity_str),
+                    Style::default().fg(rel.kind.display_color()),
+                ),
+            ]));
+        }
+    }
+
     // Adventurer flag
     if agent.is_adventurer {
         lines.push(Line::from(Span::styled(" ADVENTURER", Style::default().fg(Color::LightYellow))));
@@ -192,13 +220,24 @@ pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize)
         &agent_events
     };
 
+    // Available width for chronicle text: overlay is 60% of screen, minus 2 for borders
+    let overlay_width = (frame.area().width as usize * 60 / 100).max(20);
+    let inner_width = overlay_width.saturating_sub(2); // subtract border columns
+
     if recent.is_empty() {
         lines.push(Line::from(Span::styled("  No notable events recorded.", Style::default().fg(Color::DarkGray))));
     } else {
         for event in recent {
+            let prefix = format!("  [{}] ", event.tick);
+            let max_desc = inner_width.saturating_sub(prefix.len());
+            let desc = if event.description.len() > max_desc && max_desc > 3 {
+                format!("{}...", &event.description[..max_desc - 3])
+            } else {
+                event.description.clone()
+            };
             lines.push(Line::from(vec![
-                Span::styled(format!("  [{}] ", event.tick), Style::default().fg(Color::DarkGray)),
-                Span::styled(&event.description, Style::default().fg(Color::Gray)),
+                Span::styled(prefix, Style::default().fg(Color::DarkGray)),
+                Span::styled(desc, Style::default().fg(Color::Gray)),
             ]));
         }
     }
@@ -1420,6 +1459,11 @@ fn build_world_report_lines(sim: &SimState) -> Vec<Line<'static>> {
         Span::styled("  Total registered population: ", label_style),
         Span::styled(format!("{}", total_pop), value_style),
         Span::styled(format!("  (living agents: {})", alive_count), dim_style),
+    ]));
+    let rel_count = sim.relationship_count();
+    lines.push(Line::from(vec![
+        Span::styled("  Active relationships:        ", label_style),
+        Span::styled(format!("{}", rel_count), value_style),
     ]));
     lines.push(Line::from(""));
 

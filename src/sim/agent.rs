@@ -5,6 +5,53 @@ use serde::{Deserialize, Serialize};
 use crate::sim::event::EventType;
 use crate::sim::world::{MAP_HEIGHT, MAP_WIDTH, Terrain};
 
+/// The kind of relationship between two agents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RelationshipKind {
+    Friend,
+    Rival,
+    Partner,
+    Mentor,
+    Protege,
+    Estranged,
+}
+
+impl RelationshipKind {
+    pub fn label(&self) -> &'static str {
+        match self {
+            RelationshipKind::Friend => "Friend",
+            RelationshipKind::Rival => "Rival",
+            RelationshipKind::Partner => "Partner",
+            RelationshipKind::Mentor => "Mentor",
+            RelationshipKind::Protege => "Protégé",
+            RelationshipKind::Estranged => "Estranged",
+        }
+    }
+
+    pub fn display_color(&self) -> ratatui::style::Color {
+        use ratatui::style::Color;
+        match self {
+            RelationshipKind::Friend => Color::Rgb(100, 200, 140),
+            RelationshipKind::Rival => Color::Rgb(220, 100, 100),
+            RelationshipKind::Partner => Color::Rgb(220, 160, 220),
+            RelationshipKind::Mentor => Color::Rgb(180, 180, 240),
+            RelationshipKind::Protege => Color::Rgb(140, 200, 240),
+            RelationshipKind::Estranged => Color::Rgb(150, 150, 130),
+        }
+    }
+}
+
+/// A relationship between this agent and another.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Relationship {
+    pub other_id: u64,
+    pub kind: RelationshipKind,
+    /// Intensity 1-3 (casual to deep).
+    pub intensity: u8,
+    /// Tick when this relationship was formed.
+    pub formed_tick: u64,
+}
+
 /// Behavioral weights that shape how an agent acts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Disposition {
@@ -89,6 +136,9 @@ pub struct Agent {
     /// Artifact IDs currently held by this agent.
     #[serde(default)]
     pub held_artifacts: Vec<u64>,
+    /// Relationships with other agents.
+    #[serde(default)]
+    pub relationships: Vec<Relationship>,
 }
 
 impl Agent {

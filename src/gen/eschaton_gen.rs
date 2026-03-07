@@ -738,6 +738,7 @@ pub fn execute_arrival(
             institution_ids: Vec::new(),
             is_adventurer: rng.gen_bool(0.3),
             held_artifacts: Vec::new(),
+            relationships: Vec::new(),
         };
         agents.push(agent);
         id += 1;

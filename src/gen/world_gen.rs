@@ -153,6 +153,7 @@ pub fn generate_world(seed: u64, flavor: WorldFlavor) -> (World, Vec<Agent>, Vec
             institution_ids: Vec::new(),
             is_adventurer: true,
             held_artifacts: Vec::new(),
+            relationships: Vec::new(),
         });
     }
 
@@ -423,6 +424,7 @@ fn generate_agents(
             institution_ids: Vec::new(),
             is_adventurer: false,
             held_artifacts: Vec::new(),
+            relationships: Vec::new(),
         });
     }
 

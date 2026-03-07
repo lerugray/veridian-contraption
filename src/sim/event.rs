@@ -40,6 +40,9 @@ pub enum EventType {
     InhabitantInteraction,
     // Faction events
     FactionDisbanded,
+    // Relationship events
+    RelationshipFormed,
+    RelationshipChanged,
     // Seasonal events
     SeasonalTransition,
     // Eschaton events
@@ -58,7 +61,9 @@ impl EventType {
             | EventType::AgeEvent
             | EventType::AgentEmigrated
             | EventType::AgentImmigrated
-            | EventType::NaturalDeath => Color::Rgb(200, 200, 195),
+            | EventType::NaturalDeath
+            | EventType::RelationshipFormed
+            | EventType::RelationshipChanged => Color::Rgb(200, 200, 195),
 
             // Institutional/faction events — teal
             EventType::InstitutionFounded
@@ -106,7 +111,8 @@ impl EventType {
             EventType::AgentBorn | EventType::AgentDied | EventType::AgentArrived
             | EventType::AgentDeparted | EventType::AgeEvent
             | EventType::AgentEmigrated | EventType::AgentImmigrated
-            | EventType::NaturalDeath => "".to_string(),
+            | EventType::NaturalDeath
+            | EventType::RelationshipFormed | EventType::RelationshipChanged => "".to_string(),
 
             EventType::InstitutionFounded | EventType::InstitutionDissolved
             | EventType::SchismOccurred | EventType::DoctrineShifted

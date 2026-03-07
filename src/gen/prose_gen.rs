@@ -403,6 +403,8 @@ pub fn generate_description(
             "The world has been fundamentally reorganized.".to_string(),
         EventType::SeasonalTransition =>
             "The season has changed.".to_string(), // handled by dedicated generator
+        EventType::RelationshipFormed | EventType::RelationshipChanged =>
+            format!("{} has had a change in personal associations near {}.", name, loc),
     }
 }
 
@@ -1341,5 +1343,62 @@ pub fn generate_seasonal_transition(
             3 => "Winter arrives. Movement across the territory slows to a pace the bureaucracy finds companionable.".to_string(),
             _ => "The season turns to Winter. The frost settles with the quiet authority of a regulation that has always existed.".to_string(),
         },
+    }
+}
+
+/// Generate prose for a relationship event (formation or change).
+pub fn generate_relationship_event(
+    agent_name: &str,
+    other_name: &str,
+    kind: &str,
+    is_formation: bool,
+    rng: &mut StdRng,
+    register: NarrativeRegister,
+    _weirdness: f32,
+) -> String {
+    let verb = pick_verb(register, rng);
+    if is_formation {
+        match kind {
+            "Friend" => match rng.gen_range(0..4) {
+                0 => format!("{} and {} have developed what the registry classifies as a mutual regard.", agent_name, other_name),
+                1 => format!("A friendship has been {} between {} and {}. The paperwork is pending.", verb, agent_name, other_name),
+                2 => format!("{} and {} have been observed in each other's company with increasing regularity. The registrar has made a note.", agent_name, other_name),
+                _ => format!("{} has formed an association with {} that the office has tentatively categorized as amicable.", agent_name, other_name),
+            },
+            "Rival" => match rng.gen_range(0..4) {
+                0 => format!("{} and {} have entered into a state of mutual professional antagonism.", agent_name, other_name),
+                1 => format!("A rivalry has been {} between {} and {}. Both parties deny it with equal conviction.", verb, agent_name, other_name),
+                2 => format!("{} has developed a pointed disagreement with {} that shows no sign of administrative resolution.", agent_name, other_name),
+                _ => format!("The records now reflect a formal rivalry between {} and {}. The causes are disputed.", agent_name, other_name),
+            },
+            "Partner" => match rng.gen_range(0..4) {
+                0 => format!("{} and {} have entered into a partnership of a personal nature. The registrar has updated the relevant forms.", agent_name, other_name),
+                1 => format!("A romantic attachment has been {} between {} and {}. The bureau offers no comment.", verb, agent_name, other_name),
+                2 => format!("{} and {} have formed a domestic arrangement that the census office has acknowledged with characteristic brevity.", agent_name, other_name),
+                _ => format!("{} has taken {} as a partner. The filing was completed without incident.", agent_name, other_name),
+            },
+            "Mentor" => match rng.gen_range(0..3) {
+                0 => format!("{} has taken {} under advisement in matters of institutional significance.", agent_name, other_name),
+                1 => format!("A mentorship has been {} between {} and {}, the former instructing the latter in the customs of the office.", verb, agent_name, other_name),
+                _ => format!("{} has assumed the role of mentor to {}. The arrangement appears to be functional.", agent_name, other_name),
+            },
+            "Estranged" => match rng.gen_range(0..3) {
+                0 => format!("The relationship between {} and {} has been {} as estranged. Both parties maintain separate filing systems.", agent_name, other_name, verb),
+                1 => format!("{} and {} have entered a period of mutual avoidance that the registrar has classified as indefinite.", agent_name, other_name),
+                _ => format!("The association between {} and {} has soured. The relevant documents have been archived.", agent_name, other_name),
+            },
+            _ => format!("{} and {} have formed a relationship of uncertain classification.", agent_name, other_name),
+        }
+    } else {
+        // Relationship changed
+        match kind {
+            "Estranged" => match rng.gen_range(0..3) {
+                0 => format!("The bond between {} and {} has deteriorated beyond administrative repair.", agent_name, other_name),
+                1 => format!("{} and {} are now estranged. The records have been updated accordingly.", agent_name, other_name),
+                _ => format!("What was once a functional association between {} and {} has been reclassified as estranged.", agent_name, other_name),
+            },
+            "Friend" => format!("{} and {} have reconciled. The registrar has re-opened the relevant file.", agent_name, other_name),
+            _ => format!("The relationship between {} and {} has been reclassified. The paperwork is ongoing.", agent_name, other_name),
+        }
     }
 }

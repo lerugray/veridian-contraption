@@ -626,6 +626,10 @@ impl SimState {
         let mut inst_events = self.process_institutional_tick(tick);
         new_events.append(&mut inst_events);
 
+        // --- Relationship simulation ---
+        let mut rel_events = self.process_relationship_tick(tick);
+        new_events.append(&mut rel_events);
+
         // Generate epithets for agents who had notable events this tick.
         // Each agent can gain at most one epithet, and only if 50+ ticks since the last.
         for event in &new_events {
@@ -1055,6 +1059,7 @@ impl SimState {
                 institution_ids: Vec::new(),
                 is_adventurer: false,
                 held_artifacts: Vec::new(),
+                relationships: Vec::new(),
             });
 
             events.push(Event {
@@ -1159,6 +1164,7 @@ impl SimState {
                 institution_ids: Vec::new(),
                 is_adventurer: self.rng.gen_bool(0.1), // small chance of arriving as adventurer
                 held_artifacts: Vec::new(),
+                relationships: Vec::new(),
             });
 
             events.push(Event {
@@ -1323,7 +1329,12 @@ impl SimState {
                 for agent in &mut self.agents {
                     if !agent.alive || !agent.institution_ids.is_empty() { continue; }
                     if !matches!(agent.current_goal, agent::Goal::Wander) { continue; }
-                    if agent.disposition.institutional_loyalty > 0.4 && self.rng.gen_bool(0.005) {
+                    // Protégés get a boosted join chance (mentor smooths the path)
+                    let has_mentor = agent.relationships.iter().any(|r| {
+                        r.kind == agent::RelationshipKind::Protege
+                    });
+                    let join_chance = if has_mentor { 0.015 } else { 0.005 };
+                    if agent.disposition.institutional_loyalty > 0.4 && self.rng.gen_bool(join_chance) {
                         let inst_id = alive_institutions[self.rng.gen_range(0..alive_institutions.len())];
                         agent.current_goal = agent::Goal::JoinInstitution(inst_id);
                     }
@@ -1695,6 +1706,366 @@ impl SimState {
             location: Some((self.agents[ai].x, self.agents[ai].y)),
             description,
         })
+    }
+
+    /// Process relationship formation, evolution, and behavioral effects.
+    /// Runs every 20 ticks to reduce overhead.
+    fn process_relationship_tick(&mut self, tick: u64) -> Vec<Event> {
+        let mut events = Vec::new();
+        if tick % 20 != 0 {
+            return events;
+        }
+
+        let register = self.world.params.narrative_register;
+        let weirdness = self.world.params.weirdness_coefficient;
+
+        // Build a map of (grid position) -> list of alive agent indices for proximity checks.
+        let mut agents_at: std::collections::HashMap<(u32, u32), Vec<usize>> = std::collections::HashMap::new();
+        for (i, a) in self.agents.iter().enumerate() {
+            if a.alive {
+                agents_at.entry((a.x, a.y)).or_default().push(i);
+            }
+        }
+
+        // Collect proximity pairs (agents at the same tile).
+        let mut proximity_pairs: Vec<(usize, usize)> = Vec::new();
+        for indices in agents_at.values() {
+            if indices.len() < 2 { continue; }
+            // Sample a limited number of pairs to avoid quadratic blowup.
+            let limit = indices.len().min(6);
+            for i in 0..limit {
+                for j in (i + 1)..limit {
+                    proximity_pairs.push((indices[i], indices[j]));
+                }
+            }
+        }
+
+        // --- Formation ---
+        // Friendship: co-located agents with compatible dispositions
+        for &(ai, bi) in &proximity_pairs {
+            if self.rng.gen_bool(0.985) { continue; } // ~1.5% per pair per 20 ticks
+            let a = &self.agents[ai];
+            let b = &self.agents[bi];
+            // Skip if they already have a relationship
+            if a.relationships.iter().any(|r| r.other_id == b.id) { continue; }
+            // Disposition compatibility: similar loyalty and ambition
+            let compat = 1.0 - ((a.disposition.institutional_loyalty - b.disposition.institutional_loyalty).abs()
+                + (a.disposition.ambition - b.disposition.ambition).abs()) / 2.0;
+            if compat < 0.4 { continue; }
+
+            let a_name = a.display_name();
+            let b_name = b.display_name();
+            let a_id = a.id;
+            let b_id = b.id;
+            let loc = (a.x, a.y);
+
+            // Determine relationship type
+            let kind = if self.is_mentor_candidate(ai, bi) {
+                // Mentor/Protégé
+                (agent::RelationshipKind::Mentor, agent::RelationshipKind::Protege)
+            } else if compat > 0.7 && self.rng.gen_bool(0.15) {
+                // Romantic partner (rare, requires high compatibility)
+                (agent::RelationshipKind::Partner, agent::RelationshipKind::Partner)
+            } else {
+                (agent::RelationshipKind::Friend, agent::RelationshipKind::Friend)
+            };
+
+            self.agents[ai].relationships.push(agent::Relationship {
+                other_id: b_id, kind: kind.0, intensity: 1, formed_tick: tick,
+            });
+            self.agents[bi].relationships.push(agent::Relationship {
+                other_id: a_id, kind: kind.1, intensity: 1, formed_tick: tick,
+            });
+
+            // Only log notable relationship events (agents with institutional power or many epithets)
+            let notable = self.agents[ai].institution_ids.len() >= 2
+                || self.agents[bi].institution_ids.len() >= 2
+                || self.agents[ai].epithets.len() >= 2
+                || self.agents[bi].epithets.len() >= 2;
+            if notable {
+                let description = prose_gen::generate_relationship_event(
+                    &a_name, &b_name, kind.0.label(), true,
+                    &mut self.rng, register, weirdness,
+                );
+                events.push(Event {
+                    tick,
+                    event_type: EventType::RelationshipFormed,
+                    subject_id: Some(a_id),
+                    location: Some(loc),
+                    description,
+                });
+            }
+        }
+
+        // Rivalry: agents in competing institutions or conflicting dispositions
+        for &(ai, bi) in &proximity_pairs {
+            if self.rng.gen_bool(0.99) { continue; } // ~1%
+            let a = &self.agents[ai];
+            let b = &self.agents[bi];
+            if a.relationships.iter().any(|r| r.other_id == b.id) { continue; }
+
+            // Conflicting institutions or very different dispositions
+            let inst_conflict = !a.institution_ids.is_empty() && !b.institution_ids.is_empty()
+                && a.institution_ids.iter().all(|id| !b.institution_ids.contains(id));
+            let disp_conflict = (a.disposition.ambition - b.disposition.ambition).abs() > 0.5
+                || (a.disposition.paranoia - b.disposition.paranoia).abs() > 0.5;
+
+            if !inst_conflict && !disp_conflict { continue; }
+
+            let a_name = a.display_name();
+            let b_name = b.display_name();
+            let a_id = a.id;
+            let b_id = b.id;
+            let loc = (a.x, a.y);
+
+            self.agents[ai].relationships.push(agent::Relationship {
+                other_id: b_id, kind: agent::RelationshipKind::Rival, intensity: 1, formed_tick: tick,
+            });
+            self.agents[bi].relationships.push(agent::Relationship {
+                other_id: a_id, kind: agent::RelationshipKind::Rival, intensity: 1, formed_tick: tick,
+            });
+
+            let notable = self.agents[ai].institution_ids.len() >= 2
+                || self.agents[bi].institution_ids.len() >= 2
+                || self.agents[ai].epithets.len() >= 2
+                || self.agents[bi].epithets.len() >= 2;
+            if notable {
+                let description = prose_gen::generate_relationship_event(
+                    &a_name, &b_name, "Rival", true,
+                    &mut self.rng, register, weirdness,
+                );
+                events.push(Event {
+                    tick,
+                    event_type: EventType::RelationshipFormed,
+                    subject_id: Some(a_id),
+                    location: Some(loc),
+                    description,
+                });
+            }
+        }
+
+        // --- Evolution: intensity changes and type transitions ---
+        // Run every 100 ticks for performance
+        if tick % 100 == 0 {
+            // Collect changes to apply
+            let mut changes: Vec<(usize, usize, Option<agent::RelationshipKind>, i8)> = Vec::new(); // (agent_idx, rel_idx, new_kind, intensity_delta)
+
+            for (ai, agent) in self.agents.iter().enumerate() {
+                if !agent.alive { continue; }
+                for (ri, rel) in agent.relationships.iter().enumerate() {
+                    // Only process if the other agent is alive
+                    let other_alive = self.agents.iter().any(|a| a.id == rel.other_id && a.alive);
+                    if !other_alive {
+                        continue;
+                    }
+
+                    let age = tick.saturating_sub(rel.formed_tick);
+
+                    match rel.kind {
+                        agent::RelationshipKind::Friend => {
+                            // Friends can deepen over time
+                            if age > 200 && rel.intensity < 3 && self.rng.gen_bool(0.05) {
+                                changes.push((ai, ri, None, 1));
+                            }
+                            // Friends can cool or become estranged if not co-located long enough
+                            if age > 500 && rel.intensity == 1 && self.rng.gen_bool(0.03) {
+                                changes.push((ai, ri, Some(agent::RelationshipKind::Estranged), 0));
+                            }
+                        }
+                        agent::RelationshipKind::Partner => {
+                            // Partners can deepen
+                            if age > 300 && rel.intensity < 3 && self.rng.gen_bool(0.04) {
+                                changes.push((ai, ri, None, 1));
+                            }
+                            // Partners can dissolve into estrangement
+                            if age > 600 && self.rng.gen_bool(0.01) {
+                                changes.push((ai, ri, Some(agent::RelationshipKind::Estranged), 0));
+                            }
+                        }
+                        agent::RelationshipKind::Rival => {
+                            // Rivals can intensify
+                            if age > 200 && rel.intensity < 3 && self.rng.gen_bool(0.04) {
+                                changes.push((ai, ri, None, 1));
+                            }
+                            // Rivals can reconcile into friendship (rare)
+                            if age > 500 && self.rng.gen_bool(0.015) {
+                                changes.push((ai, ri, Some(agent::RelationshipKind::Friend), 0));
+                            }
+                        }
+                        agent::RelationshipKind::Mentor | agent::RelationshipKind::Protege => {
+                            // Can deepen
+                            if age > 300 && rel.intensity < 3 && self.rng.gen_bool(0.03) {
+                                changes.push((ai, ri, None, 1));
+                            }
+                        }
+                        agent::RelationshipKind::Estranged => {
+                            // Can slowly cool in intensity
+                            if age > 400 && rel.intensity > 1 && self.rng.gen_bool(0.02) {
+                                changes.push((ai, ri, None, -1));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Apply changes
+            for (ai, ri, new_kind, intensity_delta) in changes {
+                if ri >= self.agents[ai].relationships.len() { continue; }
+                let other_id = self.agents[ai].relationships[ri].other_id;
+                let agent_id = self.agents[ai].id;
+
+                if let Some(kind) = new_kind {
+                    self.agents[ai].relationships[ri].kind = kind;
+                    self.agents[ai].relationships[ri].intensity = 1;
+
+                    // Update the reciprocal relationship
+                    let reciprocal_kind = match kind {
+                        agent::RelationshipKind::Friend => agent::RelationshipKind::Friend,
+                        agent::RelationshipKind::Estranged => agent::RelationshipKind::Estranged,
+                        other => other,
+                    };
+                    if let Some(oi) = self.agents.iter().position(|a| a.id == other_id) {
+                        if oi != ai {
+                            if let Some(other_rel) = self.agents[oi].relationships.iter_mut().find(|r| r.other_id == agent_id) {
+                                other_rel.kind = reciprocal_kind;
+                                other_rel.intensity = 1;
+                            }
+                        }
+                    }
+
+                    // Log notable changes
+                    let a_notable = self.agents[ai].institution_ids.len() >= 2
+                        || self.agents[ai].epithets.len() >= 2;
+                    if a_notable {
+                        let a_name = self.agents[ai].display_name();
+                        let b_name = self.agents.iter().find(|a| a.id == other_id)
+                            .map(|a| a.display_name()).unwrap_or_else(|| "unknown".to_string());
+                        let description = prose_gen::generate_relationship_event(
+                            &a_name, &b_name, kind.label(), false,
+                            &mut self.rng, register, weirdness,
+                        );
+                        events.push(Event {
+                            tick,
+                            event_type: EventType::RelationshipChanged,
+                            subject_id: Some(agent_id),
+                            location: Some((self.agents[ai].x, self.agents[ai].y)),
+                            description,
+                        });
+                    }
+                } else {
+                    let new_intensity = (self.agents[ai].relationships[ri].intensity as i8 + intensity_delta).clamp(1, 3) as u8;
+                    self.agents[ai].relationships[ri].intensity = new_intensity;
+                    // Update reciprocal intensity
+                    if let Some(oi) = self.agents.iter().position(|a| a.id == other_id) {
+                        if oi != ai {
+                            if let Some(other_rel) = self.agents[oi].relationships.iter_mut().find(|r| r.other_id == agent_id) {
+                                other_rel.intensity = new_intensity;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- Behavioral effects ---
+
+        // Estranged agents avoid each other: if at the same settlement, chance to emigrate
+        if tick % 50 == 0 {
+            let mut flee_agents: Vec<usize> = Vec::new();
+            for (ai, agent) in self.agents.iter().enumerate() {
+                if !agent.alive { continue; }
+                for rel in &agent.relationships {
+                    if rel.kind != agent::RelationshipKind::Estranged { continue; }
+                    if let Some(other) = self.agents.iter().find(|a| a.id == rel.other_id && a.alive) {
+                        if agent.x == other.x && agent.y == other.y && self.rng.gen_bool(0.1) {
+                            flee_agents.push(ai);
+                            break;
+                        }
+                    }
+                }
+            }
+            let settlement_positions: Vec<(u32, u32)> = self.world.settlements
+                .iter().map(|s| (s.x as u32, s.y as u32)).collect();
+            for ai in flee_agents {
+                if !settlement_positions.is_empty() {
+                    let idx = self.rng.gen_range(0..settlement_positions.len());
+                    self.agents[ai].current_goal = agent::Goal::SeekSettlement(idx);
+                }
+            }
+        }
+
+        // Friends accompany each other: if a friend is heading to a site, chance to join
+        if tick % 30 == 0 {
+            let mut accompany: Vec<(usize, usize)> = Vec::new(); // (follower_idx, site_idx)
+            for (ai, agent) in self.agents.iter().enumerate() {
+                if !agent.alive { continue; }
+                if !matches!(agent.current_goal, agent::Goal::Wander | agent::Goal::Rest(_)) { continue; }
+                for rel in &agent.relationships {
+                    if rel.kind != agent::RelationshipKind::Friend { continue; }
+                    if let Some(friend) = self.agents.iter().find(|a| a.id == rel.other_id && a.alive) {
+                        if let agent::Goal::SeekSite(site_idx) = friend.current_goal {
+                            // Only if nearby (within 3 tiles)
+                            let dx = (agent.x as i32 - friend.x as i32).abs();
+                            let dy = (agent.y as i32 - friend.y as i32).abs();
+                            if dx <= 3 && dy <= 3 && self.rng.gen_bool(0.15 * rel.intensity as f64 / 3.0) {
+                                accompany.push((ai, site_idx));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            for (ai, site_idx) in accompany {
+                self.agents[ai].current_goal = agent::Goal::SeekSite(site_idx);
+            }
+        }
+
+        // Partners: higher adventuring chance if partner is in danger (exploring a site)
+        if tick % 50 == 0 {
+            for ai in 0..self.agents.len() {
+                let agent = &self.agents[ai];
+                if !agent.alive || agent.is_adventurer { continue; }
+                let has_endangered_partner = agent.relationships.iter().any(|rel| {
+                    rel.kind == agent::RelationshipKind::Partner
+                        && self.agents.iter().any(|a| {
+                            a.id == rel.other_id && a.alive
+                                && matches!(a.current_goal, agent::Goal::ExploreSite(_, _))
+                        })
+                });
+                if has_endangered_partner && agent.disposition.risk_tolerance > 0.3
+                    && self.rng.gen_bool(0.08)
+                {
+                    self.agents[ai].is_adventurer = true;
+                }
+            }
+        }
+
+        // Mentors smooth path for protégés: boost join chance
+        // (Handled inline in process_institutional_tick by checking relationships)
+
+        events
+    }
+
+    /// Check if agent at index `ai` could be a mentor to agent at `bi`.
+    fn is_mentor_candidate(&self, ai: usize, bi: usize) -> bool {
+        let a = &self.agents[ai];
+        let b = &self.agents[bi];
+        // Mentor must be significantly older and share an institution
+        let age_gap = a.age.saturating_sub(b.age);
+        if age_gap < 3650 { return false; } // at least ~10 years older
+        // Must share at least one institution
+        a.institution_ids.iter().any(|id| b.institution_ids.contains(id))
+    }
+
+    /// Count total active relationships in the world.
+    pub fn relationship_count(&self) -> usize {
+        // Each relationship is stored on both sides, so divide by 2
+        self.agents.iter()
+            .filter(|a| a.alive)
+            .map(|a| a.relationships.iter()
+                .filter(|r| self.agents.iter().any(|o| o.id == r.other_id && o.alive))
+                .count())
+            .sum::<usize>() / 2
     }
 
     /// Process adventurer artifact-related actions for one tick.
