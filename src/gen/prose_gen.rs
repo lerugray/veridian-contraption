@@ -70,7 +70,7 @@ const OMINOUS_NOUNS: &[&str] = &[
 
 // --- Conspiratorial ---
 const CONSPIRATORIAL_VERBS: &[&str] = &[
-    "intercepted", "concealed", "redirected", "substituted", "encrypted",
+    "intercepted", "concealed", "redirected", "encrypted",
     "falsified", "redacted", "implicated", "surveilled", "compromised",
     "rerouted", "classified", "leaked", "suppressed", "obscured",
 ];
@@ -378,7 +378,7 @@ fn without_leading_article(name: &str) -> &str {
 
 /// Sanitize generated prose: fix ",." → "." and other mechanical artefacts.
 fn sanitize_prose(s: String) -> String {
-    s.replace(",.", ".")
+    s.replace(",.", ".").replace("upon upon", "upon")
 }
 
 // ===========================================================================
@@ -508,7 +508,7 @@ pub fn gen_agent_arrived_indexed(name: &str, loc: &str, reg: NarrativeRegister, 
         12 => format!("{} arrived at {} carrying references from a jurisdiction the local office could not locate on any current map.", name, loc),
         _ => format!("{} was added to the incoming-persons ledger of {}. The ledger offered no opinion on the matter.", nwc, loc),
     };
-    (idx, text)
+    (idx, sanitize_prose(text))
 }
 
 fn gen_agent_departed(name: &str, loc: &str, reg: NarrativeRegister, w: f32, rng: &mut StdRng) -> String {
@@ -547,7 +547,7 @@ pub fn gen_agent_departed_indexed(name: &str, loc: &str, reg: NarrativeRegister,
         12 => format!("{} submitted no explanation upon leaving {}. The office, accustomed to unexplained departures, {} the event without follow-up.", nwc, loc, pick_neutral_verb(rng)),
         _ => format!("{} was struck from the active rolls of {} following confirmed absence. The confirmation took longer than the absence.", name, loc),
     };
-    (idx, text)
+    (idx, sanitize_prose(text))
 }
 
 fn gen_settlement_grew(loc: &str, reg: NarrativeRegister, w: f32, rng: &mut StdRng) -> String {
@@ -1167,7 +1167,7 @@ pub fn gen_site_entered_indexed(name: &str, site: &str, reg: NarrativeRegister, 
         8 => format!("{} stepped into {} with the confidence of someone who believes the architecture is on their side.", name, site),
         _ => format!("The {} of {} was breached by {}, who offered {} as justification. The {} was {} without further inquiry.", pick_noun(reg, rng), site, name, pick_cause(w, rng), pick_noun(reg, rng), pick_verb(reg, rng)),
     };
-    (idx, text)
+    (idx, sanitize_prose(text))
 }
 
 #[allow(dead_code)]
@@ -1195,7 +1195,7 @@ pub fn gen_site_left_indexed(name: &str, site: &str, reg: NarrativeRegister, w: 
         8 => format!("{} exited {} with the unhurried pace of someone who has seen everything inside and found most of it disappointing.", name, site),
         _ => format!("The {} of {} was updated to reflect the departure of {}, {}.", pick_noun(reg, rng), site, name, event_subordinate_clause(reg, w, rng)),
     };
-    (idx, text)
+    (idx, sanitize_prose(text))
 }
 
 // ===========================================================================
