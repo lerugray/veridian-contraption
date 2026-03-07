@@ -7,6 +7,119 @@ use crate::sim::site::Floor;
 pub const MAP_WIDTH: usize = 60;
 pub const MAP_HEIGHT: usize = 30;
 
+/// Default ticks for one full seasonal cycle (4 seasons).
+pub const DEFAULT_SEASON_CYCLE: u64 = 400;
+
+/// The four seasons of the world.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum Season {
+    Spring,
+    Summer,
+    Autumn,
+    Winter,
+}
+
+impl Default for Season {
+    fn default() -> Self { Season::Spring }
+}
+
+impl Season {
+    pub fn label(self) -> &'static str {
+        match self {
+            Season::Spring => "Spring",
+            Season::Summer => "Summer",
+            Season::Autumn => "Autumn",
+            Season::Winter => "Winter",
+        }
+    }
+
+    /// Compute current season and progress within it from a tick and cycle length.
+    /// Returns (season, progress 0.0–1.0 within the season, ticks into season).
+    pub fn from_tick(tick: u64, cycle_length: u64) -> (Season, f32, u64) {
+        let season_length = cycle_length / 4;
+        if season_length == 0 {
+            return (Season::Spring, 0.0, 0);
+        }
+        let pos_in_cycle = tick % cycle_length;
+        let season_idx = pos_in_cycle / season_length;
+        let ticks_into = pos_in_cycle % season_length;
+        let progress = ticks_into as f32 / season_length as f32;
+        let season = match season_idx {
+            0 => Season::Spring,
+            1 => Season::Summer,
+            2 => Season::Autumn,
+            _ => Season::Winter,
+        };
+        (season, progress, ticks_into)
+    }
+
+    /// Apply seasonal color shift to a terrain color.
+    /// `intensity` is 0.0–1.0 (from ecological_volatility).
+    pub fn shift_color(self, color: Color, intensity: f32) -> Color {
+        match color {
+            Color::Rgb(r, g, b) => {
+                let (r, g, b) = (r as f32, g as f32, b as f32);
+                let t = intensity; // how strong the shift is
+                let (nr, ng, nb) = match self {
+                    Season::Spring => {
+                        // Greens brighter, water more vivid blue
+                        (r - 5.0 * t, (g + 15.0 * t).min(255.0), b + 8.0 * t)
+                    }
+                    Season::Summer => {
+                        // Warmer, yellower, slightly bleached
+                        ((r + 15.0 * t).min(255.0), g + 5.0 * t, b - 10.0 * t)
+                    }
+                    Season::Autumn => {
+                        // Amber and orange tones
+                        ((r + 20.0 * t).min(255.0), g - 10.0 * t, b - 15.0 * t)
+                    }
+                    Season::Winter => {
+                        // Desaturated, blue-grey shift
+                        let avg = (r + g + b) / 3.0;
+                        let desat = 0.3 * t; // blend toward grey
+                        (
+                            r + (avg - r) * desat + 5.0 * t,
+                            g + (avg - g) * desat + 5.0 * t,
+                            (b + (avg - b) * desat + 12.0 * t).min(255.0),
+                        )
+                    }
+                };
+                Color::Rgb(
+                    nr.clamp(0.0, 255.0) as u8,
+                    ng.clamp(0.0, 255.0) as u8,
+                    nb.clamp(0.0, 255.0) as u8,
+                )
+            }
+            other => other,
+        }
+    }
+
+    /// Apply seasonal color shift to settlement glyphs.
+    pub fn shift_settlement_color(self, color: Color, intensity: f32) -> Color {
+        match color {
+            Color::Rgb(r, g, b) => {
+                let (r, g, b) = (r as f32, g as f32, b as f32);
+                let t = intensity;
+                let (nr, ng, nb) = match self {
+                    Season::Spring => (r, g, b), // no change
+                    Season::Summer => ((r + 5.0 * t).min(255.0), g + 3.0 * t, b),
+                    Season::Autumn => (r, g - 5.0 * t, b - 8.0 * t),
+                    Season::Winter => {
+                        // Colder settlements
+                        (r - 10.0 * t, g - 5.0 * t, (b + 10.0 * t).min(255.0))
+                    }
+                };
+                Color::Rgb(
+                    nr.clamp(0.0, 255.0) as u8,
+                    ng.clamp(0.0, 255.0) as u8,
+                    nb.clamp(0.0, 255.0) as u8,
+                )
+            }
+            other => other,
+        }
+    }
+}
+
 /// Terrain types for each map tile.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Terrain {
@@ -174,14 +287,28 @@ pub struct World {
 }
 
 impl World {
+    /// Effective season cycle length, scaled by temporal_rate.
+    pub fn season_cycle_length(&self) -> u64 {
+        (DEFAULT_SEASON_CYCLE as f32 / self.params.temporal_rate).max(40.0) as u64
+    }
+
+    /// Current season, progress within it, and ticks into it.
+    pub fn current_season(&self) -> (Season, f32, u64) {
+        Season::from_tick(self.tick, self.season_cycle_length())
+    }
+
     /// Produce the rendered map as (char, Color) pairs for display.
     pub fn render_map(&self) -> Vec<Vec<(char, Color)>> {
+        let (season, _, _) = self.current_season();
+        let intensity = self.params.ecological_volatility;
+
         let mut map = Vec::with_capacity(MAP_HEIGHT);
         for y in 0..MAP_HEIGHT {
             let mut row = Vec::with_capacity(MAP_WIDTH);
             for x in 0..MAP_WIDTH {
                 let t = self.terrain[y][x];
-                row.push((t.glyph(), t.color()));
+                let color = season.shift_color(t.color(), intensity);
+                row.push((t.glyph(), color));
             }
             map.push(row);
         }
@@ -194,6 +321,7 @@ impl World {
                     SettlementSize::Town =>   ('o', Color::Rgb(230, 210, 160)),   // warm lantern
                     SettlementSize::City =>   ('O', Color::Rgb(255, 240, 200)),   // bright hearth
                 };
+                let color = season.shift_settlement_color(color, intensity);
                 map[s.y][s.x] = (glyph, color);
             }
         }

@@ -19,7 +19,7 @@ use crate::sim::artifact::Artifact;
 use crate::sim::event::{Event, EventType};
 use crate::sim::institution::Institution;
 use crate::sim::site::Site;
-use crate::sim::world::World;
+use crate::sim::world::{Season, World};
 
 /// Maximum number of events kept in the log ring buffer.
 const MAX_EVENTS: usize = 200;
@@ -224,6 +224,8 @@ pub struct SimState {
     pub next_agent_id: u64,
     /// Overlay to return to when closing a transient overlay (e.g. Help opened from SiteView).
     pub pre_overlay: Option<Box<Overlay>>,
+    /// The season at the end of the previous tick (for detecting transitions).
+    pub last_season: Season,
 }
 
 impl SimState {
@@ -271,6 +273,7 @@ impl SimState {
             frame_count: 0,
             next_agent_id,
             pre_overlay: None,
+            last_season: Season::Spring,
         }
     }
 
@@ -299,6 +302,11 @@ impl SimState {
 
     /// Reconstruct a SimState from loaded save data.
     pub fn from_save_data(data: SaveData) -> Self {
+        let loaded_season = {
+            let cycle = (400.0 / data.world.params.temporal_rate).max(40.0) as u64;
+            let (s, _, _) = Season::from_tick(data.world.tick, cycle);
+            s
+        };
         let mut rng = StdRng::seed_from_u64(data.rng_state_seed);
         let last_tick = data.world.tick;
         let next_inst_id = data.institutions.iter().map(|i| i.id + 1).max().unwrap_or(0);
@@ -337,13 +345,40 @@ impl SimState {
             frame_count: 0,
             next_agent_id,
             pre_overlay: None,
+            last_season: loaded_season,
         }
+    }
+
+    /// Returns (season, progress 0.0–1.0, ticks_into_season, season_length).
+    pub fn season_info(&self) -> (Season, f32, u64, u64) {
+        let cycle = self.world.season_cycle_length();
+        let (s, p, t) = self.world.current_season();
+        (s, p, t, cycle / 4)
     }
 
     /// Advance the simulation by one tick.
     pub fn tick(&mut self) {
         self.world.tick += 1;
         let tick = self.world.tick;
+
+        // --- Seasonal transition check ---
+        let (current_season, _, _) = self.world.current_season();
+        if current_season != self.last_season {
+            let description = prose_gen::generate_seasonal_transition(
+                current_season,
+                &mut self.rng,
+                self.world.params.narrative_register,
+                self.world.params.weirdness_coefficient,
+            );
+            self.events.push(Event {
+                tick,
+                event_type: EventType::SeasonalTransition,
+                subject_id: None,
+                location: None,
+                description,
+            });
+            self.last_season = current_season;
+        }
 
         // Build settlement positions for agent goal-seeking.
         let settlement_positions: Vec<(u32, u32)> = self
@@ -363,7 +398,18 @@ impl SimState {
         // Process all agent actions and collect resulting events.
         let mut new_events: Vec<Event> = Vec::new();
 
+        // Winter: agents move less frequently (skip some agents' ticks)
+        let winter_skip_chance = if current_season == Season::Winter {
+            0.15 * self.world.params.ecological_volatility as f64 // up to 15% of agents skip per tick
+        } else {
+            0.0
+        };
+
         for agent in &mut self.agents {
+            // Winter movement slowdown: some agents skip their turn
+            if winter_skip_chance > 0.0 && agent.alive && self.rng.gen_bool(winter_skip_chance.min(0.3)) {
+                continue;
+            }
             let actions = agent.act(&mut self.rng, &self.world.terrain, &settlement_positions, &site_positions);
 
             for action in actions {
@@ -441,6 +487,65 @@ impl SimState {
         // --- Adventurer artifact simulation ---
         let mut artifact_events = self.process_adventurer_tick(tick);
         new_events.append(&mut artifact_events);
+
+        // --- Seasonal simulation effects ---
+        {
+            let (season, _, _) = self.world.current_season();
+            let eco_vol = self.world.params.ecological_volatility;
+
+            // Winter: extra death chance for older/weaker agents (every 20 ticks)
+            if season == Season::Winter && tick % 20 == 0 {
+                let extra_death_chance = 0.002 * eco_vol as f64;
+                let mut winter_deaths = Vec::new();
+                for (idx, agent) in self.agents.iter().enumerate() {
+                    if !agent.alive { continue; }
+                    // Older agents and those with low health are vulnerable
+                    let vulnerability = (agent.age as f64 / 36500.0).min(1.0) * 0.5
+                        + (1.0 - agent.health as f64 / 100.0) * 0.5;
+                    if self.rng.gen_bool((extra_death_chance * vulnerability).min(0.02)) {
+                        winter_deaths.push(idx);
+                    }
+                }
+                for idx in winter_deaths {
+                    let agent = &mut self.agents[idx];
+                    if !agent.alive { continue; }
+                    agent.alive = false;
+                    let agent_name = agent.display_name();
+                    let agent_id = agent.id;
+                    let pos = (agent.x, agent.y);
+                    let loc_name = prose_gen::nearest_settlement_name(pos.0, pos.1, &self.world);
+                    let description = prose_gen::generate_description(
+                        &EventType::NaturalDeath,
+                        Some(&agent_name),
+                        Some(&loc_name),
+                        tick,
+                        &mut self.rng,
+                        self.world.params.narrative_register,
+                        self.world.params.weirdness_coefficient,
+                    );
+                    new_events.push(Event {
+                        tick,
+                        event_type: EventType::NaturalDeath,
+                        subject_id: Some(agent_id),
+                        location: Some(pos),
+                        description,
+                    });
+                }
+            }
+
+            // Summer: boost adventurer activity — more agents become adventurers
+            if season == Season::Summer && tick % 50 == 0 {
+                let boost_chance = 0.03 * eco_vol as f64;
+                for agent in &mut self.agents {
+                    if !agent.alive || agent.is_adventurer { continue; }
+                    if agent.disposition.risk_tolerance > 0.5
+                        && self.rng.gen_bool(boost_chance.min(0.1))
+                    {
+                        agent.is_adventurer = true;
+                    }
+                }
+            }
+        }
 
         // Weather events — interval scaled by temporal_rate and ecological_volatility
         let weather_interval = (50.0 / (self.world.params.temporal_rate * (0.5 + self.world.params.ecological_volatility))).max(5.0) as u64;
@@ -864,6 +969,19 @@ impl SimState {
         let register = self.world.params.narrative_register;
         let weirdness = self.world.params.weirdness_coefficient;
         let temporal_rate = self.world.params.temporal_rate;
+        let (season, _, _) = self.world.current_season();
+        let eco_vol = self.world.params.ecological_volatility;
+
+        // Seasonal modifiers scale with ecological_volatility
+        let birth_modifier = match season {
+            Season::Spring => 1.0 + 0.3 * eco_vol,  // Spring: increased births
+            Season::Winter => 1.0 - 0.2 * eco_vol,   // Winter: fewer births
+            _ => 1.0,
+        };
+        let emigration_modifier = match season {
+            Season::Winter => 1.0 + 0.2 * eco_vol,   // Winter: more likely to leave
+            _ => 1.0,
+        };
 
         // --- BIRTHS ---
         // For each settlement, chance of a birth proportional to how many agents are nearby.
@@ -891,9 +1009,8 @@ impl SimState {
 
         for (si, pop) in settlement_pops.iter().enumerate() {
             if *pop == 0 { continue; }
-            // Birth chance scales with local pop and temporal_rate.
-            // ~0.3% per agent per 10 ticks at temporal_rate 1.0, capped.
-            let birth_chance = (0.003 * temporal_rate as f64 * (*pop as f64).sqrt()).min(0.15);
+            // Birth chance scales with local pop, temporal_rate, and season.
+            let birth_chance = (0.003 * temporal_rate as f64 * birth_modifier as f64 * (*pop as f64).sqrt()).min(0.15);
             if self.rng.gen_bool(birth_chance) {
                 let people_id = if !self.world.peoples.is_empty() {
                     self.rng.gen_range(0..self.world.peoples.len())
@@ -963,7 +1080,7 @@ impl SimState {
             let disposition_factor = agent.disposition.risk_tolerance * 1.5
                 + (1.0 - agent.disposition.institutional_loyalty) * 0.5
                 + agent.disposition.paranoia * 0.3;
-            let emigration_chance = 0.001 * temporal_rate as f64 * disposition_factor as f64;
+            let emigration_chance = 0.001 * temporal_rate as f64 * disposition_factor as f64 * emigration_modifier as f64;
             if self.rng.gen_bool(emigration_chance.min(0.05)) {
                 emigration_indices.push(idx);
             }
@@ -1214,8 +1331,15 @@ impl SimState {
             }
         }
 
-        // Periodic institutional events — interval scaled by temporal_rate and political_churn
-        let inst_event_interval = (75.0 / (self.world.params.temporal_rate * (0.5 + self.world.params.political_churn))).max(5.0) as u64;
+        // Periodic institutional events — interval scaled by temporal_rate, political_churn, and season
+        let (season, _, _) = self.world.current_season();
+        let eco_vol = self.world.params.ecological_volatility;
+        let inst_season_multiplier = match season {
+            Season::Autumn => 1.0 + 0.4 * eco_vol, // Autumn: more political activity
+            Season::Spring => 1.0 + 0.2 * eco_vol,  // Spring: slight boost to formation
+            _ => 1.0,
+        };
+        let inst_event_interval = (75.0 / (self.world.params.temporal_rate * (0.5 + self.world.params.political_churn) * inst_season_multiplier)).max(5.0) as u64;
         if tick % inst_event_interval == 0 && !self.institutions.is_empty() {
             let alive_indices: Vec<usize> = self.institutions.iter()
                 .enumerate()
@@ -1232,8 +1356,8 @@ impl SimState {
             }
         }
 
-        // Relationship events — interval scaled by temporal_rate and political_churn
-        let relation_interval = (150.0 / (self.world.params.temporal_rate * (0.5 + self.world.params.political_churn))).max(10.0) as u64;
+        // Relationship events — interval scaled by temporal_rate, political_churn, and season
+        let relation_interval = (150.0 / (self.world.params.temporal_rate * (0.5 + self.world.params.political_churn) * inst_season_multiplier)).max(10.0) as u64;
         if tick % relation_interval == 0 {
             let alive_ids: Vec<u64> = self.institutions.iter()
                 .filter(|i| i.alive)

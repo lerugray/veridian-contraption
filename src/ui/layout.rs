@@ -897,6 +897,15 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
         "  ".to_string()
     };
 
+    // Season display
+    let (season, _, _) = sim.world.current_season();
+    let season_color = match season {
+        crate::sim::world::Season::Spring => Color::Rgb(120, 200, 100),
+        crate::sim::world::Season::Summer => Color::Rgb(220, 200, 80),
+        crate::sim::world::Season::Autumn => Color::Rgb(210, 150, 70),
+        crate::sim::world::Season::Winter => Color::Rgb(140, 160, 200),
+    };
+
     let status_line = Line::from(vec![
         Span::styled(&spinner, Style::default().fg(Color::Rgb(100, 200, 120)).bg(Color::Rgb(30, 30, 40))),
         Span::styled(
@@ -906,6 +915,10 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, sim: &SimState) {
         Span::styled(
             format!("Tick {}  ", sim.world.tick),
             Style::default().fg(Color::Rgb(140, 140, 150)).bg(Color::Rgb(30, 30, 40)),
+        ),
+        Span::styled(
+            format!("{}  ", season.label()),
+            Style::default().fg(season_color).bg(Color::Rgb(30, 30, 40)),
         ),
         Span::styled(
             format!("{}  ", sim.speed.label()),

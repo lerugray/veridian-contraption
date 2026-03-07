@@ -40,6 +40,8 @@ pub enum EventType {
     InhabitantInteraction,
     // Faction events
     FactionDisbanded,
+    // Seasonal events
+    SeasonalTransition,
     // Eschaton events
     EschatonFired,
 }
@@ -76,7 +78,8 @@ impl EventType {
             // Environmental events — spring green
             EventType::WeatherEvent
             | EventType::SettlementGrew
-            | EventType::SettlementShrank => Color::Rgb(110, 200, 120),
+            | EventType::SettlementShrank
+            | EventType::SeasonalTransition => Color::Rgb(110, 200, 120),
 
             // Site events — rust
             EventType::AgentEnteredSite
@@ -115,7 +118,8 @@ impl EventType {
             | EventType::RivalryDeclared => "\u{2694} ".to_string(), // ⚔ (crossed swords — political)
 
             EventType::WeatherEvent | EventType::SettlementGrew
-            | EventType::SettlementShrank => "\u{2618} ".to_string(), // ☘ (environmental)
+            | EventType::SettlementShrank
+            | EventType::SeasonalTransition => "\u{2618} ".to_string(), // ☘ (environmental)
 
             EventType::AgentEnteredSite | EventType::AgentLeftSite
             | EventType::AdventurerDiedInSite

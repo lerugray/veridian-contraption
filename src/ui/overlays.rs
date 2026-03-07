@@ -1310,6 +1310,37 @@ fn build_world_report_lines(sim: &SimState) -> Vec<Line<'static>> {
         Span::styled("  Current Tick:      ", label_style),
         Span::styled(format!("{}", w.tick), value_style),
     ]));
+
+    // Season info
+    let (season, progress, ticks_into, season_length) = sim.season_info();
+    let season_color = match season {
+        crate::sim::world::Season::Spring => Color::Rgb(120, 200, 100),
+        crate::sim::world::Season::Summer => Color::Rgb(220, 200, 80),
+        crate::sim::world::Season::Autumn => Color::Rgb(210, 150, 70),
+        crate::sim::world::Season::Winter => Color::Rgb(140, 160, 200),
+    };
+    lines.push(Line::from(vec![
+        Span::styled("  Current Season:    ", label_style),
+        Span::styled(season.label().to_string(), Style::default().fg(season_color)),
+        Span::styled(
+            format!("  (tick {} of {}, {:.0}%)", ticks_into, season_length, progress * 100.0),
+            dim_style,
+        ),
+    ]));
+    let eco_vol = w.params.ecological_volatility;
+    let intensity_desc = if eco_vol < 0.3 {
+        "barely perceptible"
+    } else if eco_vol < 0.5 {
+        "subtle"
+    } else if eco_vol < 0.7 {
+        "moderate"
+    } else {
+        "dramatic"
+    };
+    lines.push(Line::from(vec![
+        Span::styled("  Seasonal Intensity:", label_style),
+        Span::styled(format!(" {} ({:.0}%)", intensity_desc, eco_vol * 100.0), value_style),
+    ]));
     lines.push(Line::from(""));
 
     // World parameters — generated per world

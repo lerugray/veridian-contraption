@@ -401,6 +401,8 @@ pub fn generate_description(
             format!("{} had an encounter within a site near {}.", name, loc),
         EventType::EschatonFired =>
             "The world has been fundamentally reorganized.".to_string(),
+        EventType::SeasonalTransition =>
+            "The season has changed.".to_string(), // handled by dedicated generator
     }
 }
 
@@ -1295,5 +1297,49 @@ pub fn generate_faction_disbanded(
         5 => format!("The {} was disbanded after a final audit revealed zero members, zero assets, and a filing backlog that exceeded the institution's entire operational history.", faction_name),
         6 => format!("The {} concluded its existence with the quiet finality of a door closing in an empty building. The {} {} the closure and moved on to more pressing vacancies.", faction_name, pick_noun(register, rng), pick_verb(register, rng)),
         _ => format!("The administrative record of the {} was transferred to the archives, where it will join other concluded entities in a silence the archivist describes as 'comprehensive.'", faction_name),
+    }
+}
+
+// ===========================================================================
+// SEASONAL TRANSITION PROSE
+// ===========================================================================
+
+/// Generate a log entry for the transition to a new season.
+pub fn generate_seasonal_transition(
+    season: crate::sim::world::Season,
+    rng: &mut StdRng,
+    register: NarrativeRegister,
+    _weirdness: f32,
+) -> String {
+    use crate::sim::world::Season;
+    match season {
+        Season::Spring => match rng.gen_range(0..5) {
+            0 => format!("The Bureau of Meteorological Affairs {} the onset of Spring. The ledgers have been updated accordingly.", pick_verb(register, rng)),
+            1 => "Spring has been declared. The thaw proceeds on schedule, pending the usual approvals.".to_string(),
+            2 => format!("The season has turned to Spring. Several {} were filed regarding the brightness of the light.", pick_noun(register, rng)),
+            3 => "The registrar noted the arrival of Spring with a fresh requisition for ink, the previous supply having been depleted by the demands of winter correspondence.".to_string(),
+            _ => "Spring. The earth softens. The administrative calendar advances. Both events are treated with equal formality.".to_string(),
+        },
+        Season::Summer => match rng.gen_range(0..5) {
+            0 => format!("Summer has been {} by the relevant authorities. Heat advisories have been posted in the customary locations.", pick_verb(register, rng)),
+            1 => "The longest days have arrived. The Bureau of Seasonal Compliance reports no irregularities, which is itself irregular.".to_string(),
+            2 => format!("Summer commences. The {} indicates conditions favorable to expeditions and unfavorable to concentrated thought.", pick_noun(register, rng)),
+            3 => "The warm season has begun. Several officials have relocated their desks nearer to windows, a development the facilities committee is monitoring.".to_string(),
+            _ => "Summer. The heat settles over the land like a memorandum that no one has read but everyone has acknowledged.".to_string(),
+        },
+        Season::Autumn => match rng.gen_range(0..5) {
+            0 => format!("Autumn has been {} in the official record. The leaves have been notified.", pick_verb(register, rng)),
+            1 => "The season turns to Autumn. The harvest assessors have been dispatched. Several have already filed preliminary complaints about the quality of the roads.".to_string(),
+            2 => format!("Autumn arrives, bringing with it the annual surge in institutional activity and a {} of unusual length.", pick_noun(register, rng)),
+            3 => "The Bureau of Meteorological Affairs acknowledges Autumn. The days shorten. The paperwork does not.".to_string(),
+            _ => "Autumn. The world contracts. Institutions expand to fill the reduced daylight with twice the deliberation.".to_string(),
+        },
+        Season::Winter => match rng.gen_range(0..5) {
+            0 => format!("Winter has been formally {} by the meteorological office. Travel advisories are in effect.", pick_verb(register, rng)),
+            1 => "The cold season descends. The registrar has requisitioned additional firewood and noted, with characteristic precision, that the previous winter also occurred.".to_string(),
+            2 => format!("Winter. The {} has been updated to reflect conditions of reduced visibility and increased administrative contemplation.", pick_noun(register, rng)),
+            3 => "Winter arrives. Movement across the territory slows to a pace the bureaucracy finds companionable.".to_string(),
+            _ => "The season turns to Winter. The frost settles with the quiet authority of a regulation that has always existed.".to_string(),
+        },
     }
 }
