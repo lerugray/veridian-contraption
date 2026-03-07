@@ -133,12 +133,23 @@ const IMPOSSIBLE_CAUSES: &[&str] = &[
     "the discovery that the meeting had occurred in a room that the building does not contain",
 ];
 
+// --- Neutral verbs for weather/movement templates (safe in any register) ---
+const NEUTRAL_RECORD_VERBS: &[&str] = &[
+    "noted", "recorded", "acknowledged", "logged", "filed",
+    "registered", "processed", "documented", "catalogued", "entered",
+];
+
 // ===========================================================================
 // Core picking functions
 // ===========================================================================
 
 fn pick<'a>(options: &'a [&'a str], rng: &mut StdRng) -> &'a str {
     options[rng.gen_range(0..options.len())]
+}
+
+/// Pick a verb that fits weather/movement contexts regardless of narrative register.
+fn pick_neutral_verb(rng: &mut StdRng) -> &'static str {
+    pick(NEUTRAL_RECORD_VERBS, rng)
 }
 
 
@@ -443,15 +454,27 @@ fn gen_agent_died(name: &str, loc: &str, reg: NarrativeRegister, w: f32, rng: &m
 }
 
 fn gen_agent_arrived(name: &str, loc: &str, reg: NarrativeRegister, w: f32, rng: &mut StdRng) -> String {
+    gen_agent_arrived_indexed(name, loc, reg, w, rng, None).1
+}
+
+/// Generate arrival prose, returning (template_index, text).
+/// If `exclude` is Some, avoids that template index (tries once, falls back if needed).
+pub fn gen_agent_arrived_indexed(name: &str, loc: &str, reg: NarrativeRegister, w: f32, rng: &mut StdRng, exclude: Option<u8>) -> (u8, String) {
     let nwc = name_with_optional_clause(name, loc, reg, w, rng);
-    match rng.gen_range(0..10) {
-        0 => format!("{} arrived at {} without prior notice or evident purpose. The local {} {} the arrival {}.", nwc, loc, pick_noun(reg, rng), pick_verb(reg, rng), pick(TEMPORAL_HEDGES, rng)),
+    let mut idx = rng.gen_range(0..13u8);
+    if let Some(ex) = exclude {
+        if idx == ex {
+            idx = rng.gen_range(0..13u8);
+        }
+    }
+    let text = match idx {
+        0 => format!("{} arrived at {} without prior notice or evident purpose. The local {} {} the arrival {}.", nwc, loc, pick_noun(reg, rng), pick_neutral_verb(rng), pick(TEMPORAL_HEDGES, rng)),
         1 => format!("{} appeared in {} bearing documentation of uncertain validity.", nwc, loc),
-        2 => format!("The {} of {} recorded the arrival of {}, though the arrival itself was {} on procedural grounds.", pick_noun(reg, rng), loc, name, pick_verb(reg, rng)),
+        2 => format!("The {} of {} recorded the arrival of {}, though the arrival itself was {} on procedural grounds.", pick_noun(reg, rng), loc, name, pick_neutral_verb(rng)),
         3 => format!("{} entered {} with the air of someone who has been expected elsewhere. A {} was opened {}.", nwc, loc, pick_noun(reg, rng), pick(TEMPORAL_HEDGES, rng)),
         4 => format!("{} was provisionally noted in the register of {}. The notation included several caveats.", nwc, loc),
-        5 => format!("{} arrived in {} claiming business with no one in particular. This claim was {} by the local office.", name, loc, pick_verb(reg, rng)),
-        6 => format!("The presence of {} was detected in {} by means of {}. A {} was {} accordingly.", name, loc, pick_cause(w, rng), pick_noun(reg, rng), pick_verb(reg, rng)),
+        5 => format!("{} arrived in {} claiming business with no one in particular. This claim was {} by the local office.", name, loc, pick_neutral_verb(rng)),
+        6 => format!("The presence of {} was detected in {} by means of {}. A {} was {} accordingly.", name, loc, pick_cause(w, rng), pick_noun(reg, rng), pick_neutral_verb(rng)),
         7 => match reg {
             NarrativeRegister::Ominous => format!("{} arrived in {}. Those who saw the arrival did not speak of it afterward.", name, loc),
             NarrativeRegister::Lyrical => format!("{} came to {} in the manner of rain: unannounced, and with an air of having been inevitable.", name, loc),
@@ -459,21 +482,38 @@ fn gen_agent_arrived(name: &str, loc: &str, reg: NarrativeRegister, w: f32, rng:
             NarrativeRegister::Conspiratorial => format!("{} appeared in {}, which is to say: was allowed to appear in {}. The distinction matters to those who maintain the relevant {}.", name, loc, loc, pick_noun(reg, rng)),
             _ => format!("{} materialized in the administrative jurisdiction of {}, prompting the creation of a provisional {}.", nwc, loc, pick_noun(reg, rng)),
         },
-        8 => format!("{} was {} in the vicinity of {}, {}.", name, pick_verb(reg, rng), loc, event_subordinate_clause(reg, w, rng)),
-        _ => format!("The {} of {} now includes {}, a fact the office absorbed with its customary lack of enthusiasm.", pick_noun(reg, rng), loc, nwc),
-    }
+        8 => format!("{} was {} in the vicinity of {}, {}.", name, pick_neutral_verb(rng), loc, event_subordinate_clause(reg, w, rng)),
+        9 => format!("The {} of {} now includes {}. The office absorbed this fact with its customary lack of enthusiasm.", pick_noun(reg, rng), loc, nwc),
+        10 => format!("{} presented credentials at {} that the receiving office described as 'not entirely implausible.' A provisional entry was made.", name, loc),
+        11 => format!("The gates of {} admitted {} in the usual manner, which is to say: with neither welcome nor objection.", loc, nwc),
+        12 => format!("{} arrived at {} carrying references from a jurisdiction the local office could not locate on any current map.", name, loc),
+        _ => format!("{} was added to the incoming-persons ledger of {}. The ledger offered no opinion on the matter.", nwc, loc),
+    };
+    (idx, text)
 }
 
 fn gen_agent_departed(name: &str, loc: &str, reg: NarrativeRegister, w: f32, rng: &mut StdRng) -> String {
+    gen_agent_departed_indexed(name, loc, reg, w, rng, None).1
+}
+
+/// Generate departure prose, returning (template_index, text).
+/// If `exclude` is Some, avoids that template index (tries once, falls back if needed).
+pub fn gen_agent_departed_indexed(name: &str, loc: &str, reg: NarrativeRegister, w: f32, rng: &mut StdRng, exclude: Option<u8>) -> (u8, String) {
     let nwc = name_with_optional_clause(name, loc, reg, w, rng);
-    match rng.gen_range(0..10) {
-        0 => format!("{} departed from {} citing personal obligations of an unspecified nature. The {} was {} accordingly.", nwc, loc, pick_noun(reg, rng), pick_verb(reg, rng)),
+    let mut idx = rng.gen_range(0..13u8);
+    if let Some(ex) = exclude {
+        if idx == ex {
+            idx = rng.gen_range(0..13u8);
+        }
+    }
+    let text = match idx {
+        0 => format!("{} departed from {} citing personal obligations of an unspecified nature. The {} was {} accordingly.", nwc, loc, pick_noun(reg, rng), pick_neutral_verb(rng)),
         1 => format!("{} left {} without filing the customary notice of departure.", nwc, loc),
-        2 => format!("The departure of {} from {} was {} by the local office. Several unsigned documents were left behind.", name, loc, pick_verb(reg, rng)),
+        2 => format!("The departure of {} from {} was {} by the local office. Several unsigned documents were left behind.", name, loc, pick_neutral_verb(rng)),
         3 => format!("{} concluded business in {} that no record describes and departed {}.", name, loc, pick(TEMPORAL_HEDGES, rng)),
         4 => format!("{} vacated {} under circumstances the local clerk declined to elaborate upon.", nwc, loc),
         5 => format!("The register of {} was updated to reflect the absence of {}. The update was attributed to {}.", loc, name, pick_cause(w, rng)),
-        6 => format!("{} was no longer present in {} as of the most recent {}, a fact the office {} without comment.", name, loc, pick_noun(reg, rng), pick_verb(reg, rng)),
+        6 => format!("{} was no longer present in {} as of the most recent {}, a fact the office {} without comment.", name, loc, pick_noun(reg, rng), pick_neutral_verb(rng)),
         7 => match reg {
             NarrativeRegister::Ominous => format!("{} is no longer in {}. The manner of departure does not bear examination.", name, loc),
             NarrativeRegister::Lyrical => format!("{} left {}, and the place — one might say — contracted slightly around the gap.", name, loc),
@@ -482,8 +522,13 @@ fn gen_agent_departed(name: &str, loc: &str, reg: NarrativeRegister, w: f32, rng
             _ => format!("{} departed from {}, {}.", nwc, loc, event_subordinate_clause(reg, w, rng)),
         },
         8 => format!("The {} of {} was amended to reflect the departure of {}, a correction the office described as 'overdue.'", pick_noun(reg, rng), loc, name),
-        _ => format!("{} exited the administrative boundaries of {}. The reason given was {}, which the {} {} without visible reaction.", name, loc, pick_cause(w, rng), pick_noun(reg, rng), pick_verb(reg, rng)),
-    }
+        9 => format!("{} exited the administrative boundaries of {}. The reason given was {}, which the {} {} without visible reaction.", name, loc, pick_cause(w, rng), pick_noun(reg, rng), pick_neutral_verb(rng)),
+        10 => format!("{} quit {} with a haste the local clerk described as 'not technically prohibited.' The relevant {} was updated after the fact.", name, loc, pick_noun(reg, rng)),
+        11 => format!("The census of {} was diminished by one: {} is no longer in residence. The forwarding address field was left blank.", loc, nwc),
+        12 => format!("{} submitted no explanation upon leaving {}. The office, accustomed to unexplained departures, {} the event without follow-up.", nwc, loc, pick_neutral_verb(rng)),
+        _ => format!("{} was struck from the active rolls of {} following confirmed absence. The confirmation took longer than the absence.", name, loc),
+    };
+    (idx, text)
 }
 
 fn gen_settlement_grew(loc: &str, reg: NarrativeRegister, w: f32, rng: &mut StdRng) -> String {
@@ -545,8 +590,8 @@ pub fn gen_weather_indexed(loc: &str, reg: NarrativeRegister, w: f32, rng: &mut 
     let text = match idx {
         0 => format!("Conditions in the vicinity of {} became unseasonably damp. This was attributed to {}, which the Bureau of Ambient Conditions is still reviewing.", loc, pick_cause(w, rng)),
         1 => format!("An amber haze settled over {}. The phenomenon was attributed to {} and logged under the existing {} for atmospheric irregularities.", loc, pick_cause(w, rng), pick_noun(reg, rng)),
-        2 => format!("A persistent low wind in the vicinity of {} prompted the filing of a {} with the regional office. The {} was {} but not acted upon.", loc, pick_noun(reg, rng), pick_noun(reg, rng), pick_verb(reg, rng)),
-        3 => format!("The area surrounding {} was punctuated by brief intervals of something not quite rain. The cause was {} by the local office as 'atmospheric indifference.'", loc, pick_verb(reg, rng)),
+        2 => format!("A persistent low wind in the vicinity of {} prompted the filing of a {} with the regional office. The {} was {} but not acted upon.", loc, pick_noun(reg, rng), pick_noun(reg, rng), pick_neutral_verb(rng)),
+        3 => format!("The area surrounding {} was punctuated by brief intervals of something not quite rain. The cause was {} by the local office as 'atmospheric indifference.'", loc, pick_neutral_verb(rng)),
         4 => match reg {
             NarrativeRegister::Ominous => format!("The sky above {} changed. It did not change back.", loc),
             NarrativeRegister::Lyrical => format!("Weather visited {} in the manner of an old acquaintance — familiar, unwelcome, and impossible to turn away at the door.", loc),
@@ -554,19 +599,19 @@ pub fn gen_weather_indexed(loc: &str, reg: NarrativeRegister, w: f32, rng: &mut 
             NarrativeRegister::Conspiratorial => format!("The weather in {} shifted in a way that would be unremarkable if it had not coincided precisely with {}. Draw your own conclusions.", loc, pick_cause(w, rng)),
             _ => format!("The meteorological {} of {} {} a disturbance that the office classified as 'atmospheric in nature,' a category that technically includes everything.", pick_noun(reg, rng), loc, pick_verb(reg, rng)),
         },
-        5 => format!("Conditions near {} became briefly extraordinary before returning to their customary mediocrity. The {} was {} accordingly.", loc, pick_noun(reg, rng), pick_verb(reg, rng)),
+        5 => format!("Conditions near {} became briefly extraordinary before returning to their customary mediocrity. The {} was {} accordingly.", loc, pick_noun(reg, rng), pick_neutral_verb(rng)),
         6 => format!("The climate in the region of {} expressed an opinion that the local {} classified as 'seasonal.' This categorization was not contested.", loc, pick_noun(reg, rng)),
         7 => format!("Something fell from the sky near {}. Whether it was rain, ash, or the residue of {} was not determined before the {} was closed.", loc, pick_cause(w, rng), pick_noun(reg, rng)),
-        8 => format!("A warm front arrived at {} and was {} by the meteorological office with neither ceremony nor urgency.", loc, pick_verb(reg, rng)),
+        8 => format!("A warm front arrived at {} and was {} by the meteorological office with neither ceremony nor urgency.", loc, pick_neutral_verb(rng)),
         9 => format!("The air above {} thickened with a quality the Bureau described as 'atmospheric particulate of indeterminate origin.' Residents were advised to continue as normal.", loc),
         10 => format!("A fog settled over {} with the unhurried confidence of a {} that has already been approved.", loc, pick_noun(reg, rng)),
-        11 => format!("The barometric pressure near {} shifted in a direction the instruments technically support but the forecasters did not anticipate. The {} was {} without correction.", loc, pick_noun(reg, rng), pick_verb(reg, rng)),
+        11 => format!("The barometric pressure near {} shifted in a direction the instruments technically support but the forecasters did not anticipate. The {} was {} without correction.", loc, pick_noun(reg, rng), pick_neutral_verb(rng)),
         12 => format!("A dry spell in the region of {} prompted the Bureau of Ambient Conditions to issue a statement confirming that dryness was, in fact, occurring.", loc),
         13 => format!("Winds near {} arrived from a quarter the cartographers had designated as 'unlikely.' The designation was not revised.", loc),
         14 => format!("The temperature near {} deviated from the projected range by a margin the {} described as 'within the tolerance of the instruments, if not the inhabitants.'", loc, pick_noun(reg, rng)),
-        15 => format!("An overcast condition persisted above {} for long enough to acquire a reputation. The {} {} the condition without issuing a timeline for its resolution.", loc, pick_noun(reg, rng), pick_verb(reg, rng)),
+        15 => format!("An overcast condition persisted above {} for long enough to acquire a reputation. The {} {} the condition without issuing a timeline for its resolution.", loc, pick_noun(reg, rng), pick_neutral_verb(rng)),
         16 => format!("Precipitation was observed in the vicinity of {}. The precipitation declined to be categorized and was logged under 'general atmospheric output.'", loc),
-        17 => format!("The sky above {} delivered a performance that the local office {} as 'meteorologically orthodox.' The residents were not consulted.", loc, pick_verb(reg, rng)),
+        17 => format!("The sky above {} delivered a performance that the local office {} as 'meteorologically orthodox.' The residents were not consulted.", loc, pick_neutral_verb(rng)),
         18 => match reg {
             NarrativeRegister::Ominous => format!("The air around {} grew heavy with something the instruments could not name. The {} made no attempt to.", loc, pick_noun(reg, rng)),
             NarrativeRegister::Lyrical => format!("The weather above {} paused, as though reconsidering — then continued, having apparently decided that the original plan was adequate.", loc),
@@ -656,8 +701,8 @@ fn gen_agent_emigrated(name: &str, loc: &str, reg: NarrativeRegister, w: f32, rn
         0 => format!("{} departed {} for regions not described in any current {}, citing obligations the office could not verify.", nwc, loc, pick_noun(reg, rng)),
         1 => format!("The {} of {} was updated to reflect the departure of {} toward territories the cartographic office does not acknowledge.", pick_noun(reg, rng), loc, name),
         2 => format!("{} left {} heading in a direction the compass declines to name. No forwarding address was provided.", name, loc),
-        3 => format!("{} withdrew from {} and from all subsequent record-keeping. The clerk {} the departure under 'voluntary disappearance.'", nwc, loc, pick_verb(reg, rng)),
-        4 => format!("{} indicated an intention to travel beyond the surveyed boundaries and was {} from the rolls of {} accordingly.", name, pick_verb(reg, rng), loc),
+        3 => format!("{} withdrew from {} and from all subsequent record-keeping. The clerk {} the departure under 'voluntary disappearance.'", nwc, loc, pick_neutral_verb(rng)),
+        4 => format!("{} indicated an intention to travel beyond the surveyed boundaries and was {} from the rolls of {} accordingly.", name, pick_neutral_verb(rng), loc),
         5 => format!("The last reliable sighting of {} was at the border of {}'s jurisdiction. Subsequent reports are contradictory and have not been filed.", name, loc),
         6 => match reg {
             NarrativeRegister::Ominous => format!("{} walked out of {} and into whatever exists beyond the edge of the register. No one followed.", name, loc),
@@ -683,9 +728,9 @@ fn gen_agent_immigrated(name: &str, loc: &str, reg: NarrativeRegister, w: f32, r
         0 => format!("{} arrived in {} from territories not referenced in any active {}. Documentation was requested but not produced.", nwc, loc, pick_noun(reg, rng)),
         1 => format!("A new individual identifying as {} appeared at the boundary of {} bearing no credentials the local office recognized.", name, loc),
         2 => format!("{} materialized in the jurisdiction of {} from an origin the cartographic office has no record of. A provisional {} was opened.", name, loc, pick_noun(reg, rng)),
-        3 => format!("The {} of {} {} a new arrival: {}, whose prior address is listed only as 'beyond the survey.'", pick_noun(reg, rng), loc, pick_verb(reg, rng), nwc),
-        4 => format!("{} entered {} from the direction of unmapped territory. The immigration clerk {} the event with practiced disinterest.", name, loc, pick_verb(reg, rng)),
-        5 => format!("An individual presenting as {} was added to the census of {}. Their account of their origins was heard, {} and not revisited.", name, loc, pick_verb(reg, rng)),
+        3 => format!("The {} of {} {} a new arrival: {}. Their prior address is listed only as 'beyond the survey.'", pick_noun(reg, rng), loc, pick_neutral_verb(rng), name),
+        4 => format!("{} entered {} from the direction of unmapped territory. The immigration clerk {} the event with practiced disinterest.", name, loc, pick_neutral_verb(rng)),
+        5 => format!("An individual presenting as {} was added to the census of {}. Their account of their origins was heard, {} and not revisited.", name, loc, pick_neutral_verb(rng)),
         6 => match reg {
             NarrativeRegister::Ominous => format!("{} came to {} from somewhere that does not appear on any map. The {} accepted them without question. Questions would have been unwise.", name, loc, pick_noun(reg, rng)),
             NarrativeRegister::Lyrical => format!("{} arrived in {} carrying nothing but a name and the faint suggestion of distance — the kind that accumulates in the posture of those who have walked a long time.", name, loc),
@@ -693,8 +738,8 @@ fn gen_agent_immigrated(name: &str, loc: &str, reg: NarrativeRegister, w: f32, r
             NarrativeRegister::Conspiratorial => format!("{} appeared in {} claiming to have come from 'elsewhere.' The {} accepted this at face value, which is either negligent or deliberate.", name, loc, pick_noun(reg, rng)),
             _ => format!("{} was enrolled in the census of {} under the heading 'arrivals from uncharted regions,' a category the office had hoped would remain empty.", nwc, loc),
         },
-        7 => format!("{} crossed into the jurisdiction of {} with no prior notification. The {} was {} to accommodate them, {}.", name, loc, pick_noun(reg, rng), pick_verb(reg, rng), pick(TEMPORAL_HEDGES, rng)),
-        8 => format!("The border of {} admitted {}, who offered an explanation of their origin that the receiving clerk described as 'technically a sentence.'", loc, nwc),
+        7 => format!("{} crossed into the jurisdiction of {} with no prior notification. The {} was {} to accommodate them, {}.", name, loc, pick_noun(reg, rng), pick_neutral_verb(rng), pick(TEMPORAL_HEDGES, rng)),
+        8 => format!("The border of {} admitted {}. The explanation of their origin was described by the receiving clerk as 'technically a sentence.'", loc, name),
         _ => format!("{} arrived at {} from beyond the known world. They were assigned a provisional identity number and a census entry, in that order.", name, loc),
     }
 }

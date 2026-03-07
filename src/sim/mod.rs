@@ -229,6 +229,10 @@ pub struct SimState {
     pub last_season: Season,
     /// Per-settlement weather template suppression: maps settlement index -> (last_template_id, tick).
     weather_template_history: HashMap<usize, (u8, u64)>,
+    /// Per-settlement arrival template suppression: maps settlement index -> (last_template_id, tick).
+    arrival_template_history: HashMap<usize, (u8, u64)>,
+    /// Per-settlement departure template suppression: maps settlement index -> (last_template_id, tick).
+    departure_template_history: HashMap<usize, (u8, u64)>,
 }
 
 impl SimState {
@@ -278,6 +282,8 @@ impl SimState {
             pre_overlay: None,
             last_season: Season::Spring,
             weather_template_history: HashMap::new(),
+            arrival_template_history: HashMap::new(),
+            departure_template_history: HashMap::new(),
         }
     }
 
@@ -351,6 +357,8 @@ impl SimState {
             pre_overlay: None,
             last_season: loaded_season,
             weather_template_history: HashMap::new(),
+            arrival_template_history: HashMap::new(),
+            departure_template_history: HashMap::new(),
         }
     }
 
@@ -453,15 +461,59 @@ impl SimState {
                             action.new_pos.1,
                             &self.world,
                         );
-                        prose_gen::generate_description(
-                            &action.event_type,
-                            Some(&agent_name),
-                            Some(&loc_name),
-                            tick,
-                            &mut self.rng,
-                            self.world.params.narrative_register,
-                            self.world.params.weirdness_coefficient,
-                        )
+                        // Find nearest settlement index for arrival/departure suppression
+                        let nearest_sidx = self.world.settlements.iter().enumerate()
+                            .min_by_key(|(_, s)| {
+                                let dx = s.x as i32 - action.new_pos.0 as i32;
+                                let dy = s.y as i32 - action.new_pos.1 as i32;
+                                dx * dx + dy * dy
+                            })
+                            .map(|(i, _)| i);
+                        match action.event_type {
+                            EventType::AgentArrived => {
+                                let exclude = nearest_sidx.and_then(|si| {
+                                    self.arrival_template_history.get(&si)
+                                        .and_then(|(tmpl, last_tick)| if tick.saturating_sub(*last_tick) < 50 { Some(*tmpl) } else { None })
+                                });
+                                let (tmpl_idx, text) = prose_gen::gen_agent_arrived_indexed(
+                                    &agent_name, &loc_name,
+                                    self.world.params.narrative_register,
+                                    self.world.params.weirdness_coefficient,
+                                    &mut self.rng, exclude,
+                                );
+                                if let Some(si) = nearest_sidx {
+                                    self.arrival_template_history.insert(si, (tmpl_idx, tick));
+                                }
+                                text
+                            }
+                            EventType::AgentDeparted => {
+                                let exclude = nearest_sidx.and_then(|si| {
+                                    self.departure_template_history.get(&si)
+                                        .and_then(|(tmpl, last_tick)| if tick.saturating_sub(*last_tick) < 50 { Some(*tmpl) } else { None })
+                                });
+                                let (tmpl_idx, text) = prose_gen::gen_agent_departed_indexed(
+                                    &agent_name, &loc_name,
+                                    self.world.params.narrative_register,
+                                    self.world.params.weirdness_coefficient,
+                                    &mut self.rng, exclude,
+                                );
+                                if let Some(si) = nearest_sidx {
+                                    self.departure_template_history.insert(si, (tmpl_idx, tick));
+                                }
+                                text
+                            }
+                            _ => {
+                                prose_gen::generate_description(
+                                    &action.event_type,
+                                    Some(&agent_name),
+                                    Some(&loc_name),
+                                    tick,
+                                    &mut self.rng,
+                                    self.world.params.narrative_register,
+                                    self.world.params.weirdness_coefficient,
+                                )
+                            }
+                        }
                     }
                 };
 
