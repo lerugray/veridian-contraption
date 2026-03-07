@@ -899,7 +899,11 @@ fn handle_site_view_input(sim: &mut SimState, key: KeyCode) {
         return;
     };
     match key {
-        KeyCode::Esc => { sim.overlay = Overlay::SiteList(0); }
+        KeyCode::Esc => {
+            // Return to site list with the original selection preserved
+            let list_idx = sim.world.settlements.len() + site_idx;
+            sim.overlay = Overlay::SiteList(list_idx);
+        }
         // Navigate floors with < and >
         KeyCode::Char('<') | KeyCode::Char(',') => {
             if floor_idx > 0 {
@@ -951,7 +955,10 @@ fn handle_settlement_view_input(sim: &mut SimState, key: KeyCode) {
         return;
     };
     match key {
-        KeyCode::Esc => { sim.overlay = Overlay::SiteList(0); }
+        KeyCode::Esc => {
+            // Return to site list with the original selection preserved
+            sim.overlay = Overlay::SiteList(settle_idx);
+        }
         // Simulation speed controls while viewing
         KeyCode::Char(' ') => {
             if sim.speed == SimSpeed::Paused {

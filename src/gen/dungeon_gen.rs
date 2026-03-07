@@ -603,17 +603,11 @@ fn generate_inhabitant_details(
 }
 
 /// Generate a floor plan for a settlement. Produces a single floor with civic
-/// buildings connected by streets. Size determines building count and density.
+/// buildings on open ground — bird's-eye village layout, not a dungeon.
 pub fn generate_settlement_floor(size: &SettlementSize, rng: &mut StdRng) -> Floor {
-    let mut tiles = vec![vec![Tile::Wall; FLOOR_WIDTH]; FLOOR_HEIGHT];
+    // Start with open ground everywhere
+    let mut tiles = vec![vec![Tile::Ground; FLOOR_WIDTH]; FLOOR_HEIGHT];
     let mut rooms = Vec::new();
-
-    // Building count and size ranges vary by settlement size
-    let (target_rooms, min_w, max_w, min_h, max_h) = match size {
-        SettlementSize::Hamlet => (rng.gen_range(3..=5), 4, 7, 3, 5),
-        SettlementSize::Town => (rng.gen_range(6..=9), 4, 9, 3, 6),
-        SettlementSize::City => (rng.gen_range(10..=14), 4, 10, 3, 6),
-    };
 
     // Civic purposes cycle — ensures variety
     let civic_purposes = [
@@ -633,18 +627,34 @@ pub fn generate_settlement_floor(size: &SettlementSize, rng: &mut StdRng) -> Flo
         RoomPurpose::Residential,
     ];
 
+    // Minimum interior width must fit the longest building label without truncation.
+    let label_min_w = civic_purposes.iter()
+        .map(|p| p.short_label().len())
+        .max()
+        .unwrap_or(4);
+
+    // Building count and interior size ranges vary by settlement size
+    let (target_rooms, min_w, max_w, min_h, max_h) = match size {
+        SettlementSize::Hamlet => (rng.gen_range(3..=5), label_min_w, 8, 3, 5),
+        SettlementSize::Town => (rng.gen_range(6..=9), label_min_w, 9, 3, 6),
+        SettlementSize::City => (rng.gen_range(10..=14), label_min_w, 10, 3, 6),
+    };
+
     let mut attempts = 0;
     while rooms.len() < target_rooms && attempts < 400 {
         attempts += 1;
 
-        let w = rng.gen_range(min_w..=max_w);
-        let h = rng.gen_range(min_h..=max_h);
-        let x = rng.gen_range(1..FLOOR_WIDTH.saturating_sub(w + 1));
-        let y = rng.gen_range(1..FLOOR_HEIGHT.saturating_sub(h + 1));
+        let w = rng.gen_range(min_w..=max_w); // interior width
+        let h = rng.gen_range(min_h..=max_h); // interior height
+        // Leave margin for walls (1 tile each side) plus grid border
+        let x = rng.gen_range(2..FLOOR_WIDTH.saturating_sub(w + 2));
+        let y = rng.gen_range(2..FLOOR_HEIGHT.saturating_sub(h + 2));
 
-        // Check overlap with 2-tile padding (leaves room for streets)
+        // Check overlap: each building occupies interior + 1-tile wall border.
+        // Require 1 additional tile gap between buildings for open ground.
         let overlaps = rooms.iter().any(|r: &Room| {
-            x < r.x + r.w + 2 && x + w + 2 > r.x && y < r.y + r.h + 2 && y + h + 2 > r.y
+            x < r.x + r.w + 3 && x + w + 3 > r.x
+                && y < r.y + r.h + 3 && y + h + 3 > r.y
         });
         if overlaps {
             continue;
@@ -652,54 +662,59 @@ pub fn generate_settlement_floor(size: &SettlementSize, rng: &mut StdRng) -> Flo
 
         let purpose = civic_purposes[rooms.len() % civic_purposes.len()].clone();
 
-        // Carve the building interior
+        // Draw building walls (border around the interior)
+        for rx in x.saturating_sub(1)..=(x + w).min(FLOOR_WIDTH - 1) {
+            if y > 0 { tiles[y - 1][rx] = Tile::Wall; }
+            if y + h < FLOOR_HEIGHT { tiles[y + h][rx] = Tile::Wall; }
+        }
+        for ry in y.saturating_sub(1)..=(y + h).min(FLOOR_HEIGHT - 1) {
+            if x > 0 { tiles[ry][x - 1] = Tile::Wall; }
+            if x + w < FLOOR_WIDTH { tiles[ry][x + w] = Tile::Wall; }
+        }
+
+        // Fill interior with floor
         for ry in y..y + h {
             for rx in x..x + w {
                 tiles[ry][rx] = Tile::Floor;
             }
         }
 
+        // Place 1-2 doors on building walls
+        let door_count = if w + h > 10 { 2 } else { 1 };
+        for _ in 0..door_count {
+            match rng.gen_range(0u8..4) {
+                0 if y > 0 => {
+                    let dx = rng.gen_range(x..x + w);
+                    tiles[y - 1][dx] = Tile::Door;
+                }
+                1 if y + h < FLOOR_HEIGHT => {
+                    let dx = rng.gen_range(x..x + w);
+                    tiles[y + h][dx] = Tile::Door;
+                }
+                2 if x > 0 => {
+                    let dy = rng.gen_range(y..y + h);
+                    tiles[dy][x - 1] = Tile::Door;
+                }
+                _ if x + w < FLOOR_WIDTH => {
+                    let dy = rng.gen_range(y..y + h);
+                    tiles[dy][x + w] = Tile::Door;
+                }
+                _ => {}
+            }
+        }
+
         rooms.push(Room { x, y, w, h, purpose });
     }
 
-    // Carve streets connecting buildings — wider paths (2 tiles) where possible
-    for i in 1..rooms.len() {
-        let (cx1, cy1) = rooms[i - 1].center();
-        let (cx2, cy2) = rooms[i].center();
-        carve_street(&mut tiles, cx1, cy1, cx2, cy2, rng);
-    }
-    // Extra cross-connections for cities and towns (settlements feel more connected)
-    if rooms.len() > 4 {
-        let extra = match size {
-            SettlementSize::City => rng.gen_range(2..=4),
-            SettlementSize::Town => rng.gen_range(1..=2),
-            SettlementSize::Hamlet => 0,
-        };
-        for _ in 0..extra {
-            let a = rng.gen_range(0..rooms.len());
-            let b = rng.gen_range(0..rooms.len());
-            if a != b {
-                let (cx1, cy1) = rooms[a].center();
-                let (cx2, cy2) = rooms[b].center();
-                carve_street(&mut tiles, cx1, cy1, cx2, cy2, rng);
-            }
-        }
-    }
-
-    // Place doors at building entrances
-    place_doors(&mut tiles, &rooms, rng);
-
-    // Add a well or fountain in larger settlements (Water tile as feature)
+    // Add a well or fountain in larger settlements
     if matches!(size, SettlementSize::Town | SettlementSize::City) && rooms.len() >= 2 {
-        // Place near the center of the map, on a street tile
         let cx = FLOOR_WIDTH / 2;
         let cy = FLOOR_HEIGHT / 2;
-        // Search outward from center for a floor tile
-        for r in 0..6 {
+        for r in 0..8 {
             let mut placed = false;
             for dy in (cy.saturating_sub(r))..=(cy + r).min(FLOOR_HEIGHT - 1) {
                 for dx in (cx.saturating_sub(r))..=(cx + r).min(FLOOR_WIDTH - 1) {
-                    if tiles[dy][dx] == Tile::Floor {
+                    if tiles[dy][dx] == Tile::Ground {
                         tiles[dy][dx] = Tile::Water;
                         placed = true;
                         break;
@@ -715,24 +730,6 @@ pub fn generate_settlement_floor(size: &SettlementSize, rng: &mut StdRng) -> Flo
         depth: 0,
         tiles,
         rooms,
-    }
-}
-
-/// Carve a street (wider corridor) between two points.
-fn carve_street(tiles: &mut Vec<Vec<Tile>>, x1: usize, y1: usize, x2: usize, y2: usize, rng: &mut StdRng) {
-    // Streets carve the main line plus occasionally an adjacent parallel line
-    if rng.gen_bool(0.5) {
-        carve_h(tiles, x1, x2, y1);
-        if y1 > 0 && y1 < FLOOR_HEIGHT - 1 {
-            carve_h(tiles, x1, x2, y1 + 1); // widen street
-        }
-        carve_v(tiles, y1, y2, x2);
-    } else {
-        carve_v(tiles, y1, y2, x1);
-        carve_h(tiles, x1, x2, y2);
-        if y2 > 0 && y2 < FLOOR_HEIGHT - 1 {
-            carve_h(tiles, x1, x2, y2 + 1);
-        }
     }
 }
 

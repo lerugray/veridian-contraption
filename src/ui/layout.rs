@@ -617,7 +617,7 @@ fn draw_settlement_panel(frame: &mut Frame, area: Rect, sim: &SimState, settle_i
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Rgb(230, 210, 160))); // warm settlement color
+        .border_style(Style::default().fg(Color::Rgb(230, 210, 160)));
 
     // Find agents at this settlement's coordinates
     let agent_positions: Vec<(usize, usize, usize)> = sim.agents.iter()
@@ -632,6 +632,23 @@ fn draw_settlement_panel(frame: &mut Frame, area: Rect, sim: &SimState, settle_i
             }
         })
         .collect();
+
+    // Precompute building label character positions
+    let mut label_chars: Vec<(usize, usize, char)> = Vec::new();
+    for room in &floor.rooms {
+        let label = room.purpose.short_label();
+        let label_y = room.y + room.h / 2;
+        let label_len = label.len().min(room.w);
+        let label_start = room.x + (room.w.saturating_sub(label_len)) / 2;
+        for (i, ch) in label.chars().take(label_len).enumerate() {
+            label_chars.push((label_start + i, label_y, ch));
+        }
+    }
+
+    // Settlement-specific tile colors (warmer walls, distinct ground)
+    let wall_color = Color::Rgb(170, 140, 90);   // warm wood/stone
+    let floor_color = Color::Rgb(90, 80, 65);     // indoor floor
+    let label_color = Color::Rgb(220, 200, 140);  // readable label text
 
     let inner_w = area.width.saturating_sub(2) as usize;
     let inner_h = area.height.saturating_sub(2) as usize;
@@ -653,15 +670,30 @@ fn draw_settlement_panel(frame: &mut Frame, area: Rect, sim: &SimState, settle_i
             .map(|x| {
                 let w = if x < col_extra { col_base + 1 } else { col_base };
 
+                // Agents take priority
                 if let Some((_, _, people_id)) = agent_positions.iter().find(|(ax, ay, _)| *ax == x && *ay == y) {
                     let color = PEOPLE_COLORS[people_id % PEOPLE_COLORS.len()];
                     let s: String = std::iter::repeat('@').take(w.max(1)).collect();
-                    Span::styled(s, Style::default().fg(color))
-                } else {
-                    let tile = floor.tiles[y][x];
-                    let s: String = std::iter::repeat(tile.glyph()).take(w.max(1)).collect();
-                    Span::styled(s, Style::default().fg(tile.color()))
+                    return Span::styled(s, Style::default().fg(color));
                 }
+
+                // Building labels on interior floor tiles
+                if let Some((_, _, ch)) = label_chars.iter().find(|(lx, ly, _)| *lx == x && *ly == y) {
+                    let mut s = String::new();
+                    s.push(*ch);
+                    for _ in 1..w.max(1) { s.push(' '); }
+                    return Span::styled(s, Style::default().fg(label_color));
+                }
+
+                // Tile rendering with settlement-specific colors
+                let tile = floor.tiles[y][x];
+                let color = match tile {
+                    crate::sim::site::Tile::Wall => wall_color,
+                    crate::sim::site::Tile::Floor => floor_color,
+                    _ => tile.color(),
+                };
+                let s: String = std::iter::repeat(tile.glyph()).take(w.max(1)).collect();
+                Span::styled(s, Style::default().fg(color))
             })
             .collect();
 

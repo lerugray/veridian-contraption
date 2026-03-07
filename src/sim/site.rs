@@ -54,6 +54,8 @@ pub enum Tile {
     StairUp,
     Water,
     Pit,
+    /// Outdoor open space (settlements).
+    Ground,
 }
 
 impl Tile {
@@ -66,6 +68,7 @@ impl Tile {
             Tile::StairUp => '<',
             Tile::Water => '~',
             Tile::Pit => ' ',
+            Tile::Ground => '\u{00B7}', // middle dot ·
         }
     }
 
@@ -78,11 +81,12 @@ impl Tile {
             Tile::StairDown | Tile::StairUp => Color::Rgb(100, 200, 220), // bright feature
             Tile::Water => Color::Rgb(40, 90, 160),       // underground pool
             Tile::Pit => Color::Rgb(30, 25, 20),          // dark void
+            Tile::Ground => Color::Rgb(55, 80, 45),      // outdoor grass/dirt
         }
     }
 
     pub fn walkable(self) -> bool {
-        matches!(self, Tile::Floor | Tile::Door | Tile::StairDown | Tile::StairUp)
+        matches!(self, Tile::Floor | Tile::Door | Tile::StairDown | Tile::StairUp | Tile::Ground)
     }
 }
 
@@ -119,6 +123,24 @@ impl RoomPurpose {
             RoomPurpose::Residential => "Residential",
             RoomPurpose::Warehouse => "Warehouse",
             RoomPurpose::Garrison => "Garrison",
+        }
+    }
+
+    /// Short label for rendering inside floor plan buildings.
+    pub fn short_label(&self) -> &'static str {
+        match self {
+            RoomPurpose::Storage => "Store",
+            RoomPurpose::Ritual => "Ritual",
+            RoomPurpose::Administrative => "Admin",
+            RoomPurpose::Habitation => "Home",
+            RoomPurpose::Trophy => "Trophy",
+            RoomPurpose::Disputed => "???",
+            RoomPurpose::Tavern => "Tavern",
+            RoomPurpose::Market => "Market",
+            RoomPurpose::Temple => "Temple",
+            RoomPurpose::Residential => "Home",
+            RoomPurpose::Warehouse => "Wares",
+            RoomPurpose::Garrison => "Guard",
         }
     }
 }
