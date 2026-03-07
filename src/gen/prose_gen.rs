@@ -340,7 +340,7 @@ fn event_subordinate_clause(reg: NarrativeRegister, weirdness: f32, rng: &mut St
         NarrativeRegister::Conspiratorial => match rng.gen_range(0..6) {
             0 => format!("though the official account (which differs from at least two unofficial ones) attributes it to {}", pick_cause(weirdness, rng)),
             1 => "a coincidence that required, by one estimate, the coordination of at least four parties".to_string(),
-            2 => format!("which the {} found interesting enough to {} but not quite interesting enough to act upon", pick_noun(NarrativeRegister::Conspiratorial, rng), pick_verb(NarrativeRegister::Conspiratorial, rng)),
+            2 => format!("which the {} found interesting enough to note but not quite interesting enough to act upon", pick_noun(NarrativeRegister::Conspiratorial, rng)),
             3 => "a development that certain observers had predicted in documents that have since been misplaced".to_string(),
             4 => "the timing of which was, at minimum, suggestive".to_string(),
             _ => "and one is entitled to draw one's own conclusions".to_string(),
@@ -360,6 +360,25 @@ fn name_with_optional_clause(
         Some(clause) => format!("{}, {},", name, clause),
         None => name.to_string(),
     }
+}
+
+/// Strip a leading article ("The ", "A ", "An ") from a name.
+/// Use when the template already provides an article before the name slot.
+fn without_leading_article(name: &str) -> &str {
+    if let Some(rest) = name.strip_prefix("The ") {
+        rest
+    } else if let Some(rest) = name.strip_prefix("A ") {
+        rest
+    } else if let Some(rest) = name.strip_prefix("An ") {
+        rest
+    } else {
+        name
+    }
+}
+
+/// Sanitize generated prose: fix ",." → "." and other mechanical artefacts.
+fn sanitize_prose(s: String) -> String {
+    s.replace(",.", ".")
 }
 
 // ===========================================================================
@@ -483,7 +502,7 @@ pub fn gen_agent_arrived_indexed(name: &str, loc: &str, reg: NarrativeRegister, 
             _ => format!("{} materialized in the administrative jurisdiction of {}, prompting the creation of a provisional {}.", nwc, loc, pick_noun(reg, rng)),
         },
         8 => format!("{} was {} in the vicinity of {}, {}.", name, pick_neutral_verb(rng), loc, event_subordinate_clause(reg, w, rng)),
-        9 => format!("The {} of {} now includes {}. The office absorbed this fact with its customary lack of enthusiasm.", pick_noun(reg, rng), loc, nwc),
+        9 => sanitize_prose(format!("The {} of {} now includes {}. The office absorbed this fact with its customary lack of enthusiasm.", pick_noun(reg, rng), loc, nwc)),
         10 => format!("{} presented credentials at {} that the receiving office described as 'not entirely implausible.' A provisional entry was made.", name, loc),
         11 => format!("The gates of {} admitted {} in the usual manner, which is to say: with neither welcome nor objection.", loc, nwc),
         12 => format!("{} arrived at {} carrying references from a jurisdiction the local office could not locate on any current map.", name, loc),
@@ -1217,7 +1236,7 @@ fn gen_artifact_acquired(name: &str, art: &str, loc: &str, reg: NarrativeRegiste
         0 => format!("{} recovered {} from {}. A {} was opened to document the acquisition, though the item's provenance remains {}.", name, art, loc, pick_noun(reg, rng), pick(TEMPORAL_HEDGES, rng)),
         1 => format!("{} emerged from {} bearing {}. The relevant authorities were not immediately notified.", name, loc, art),
         2 => format!("The acquisition of {} by {} was accomplished within {}. Whether the previous custodian would have objected is a question the {} declined to entertain.", art, name, loc, pick_noun(reg, rng)),
-        3 => format!("{} took possession of {} in {}. The act was {} by no one, as there was no one present to {} it.", name, art, loc, pick_verb(reg, rng), pick_verb(reg, rng)),
+        3 => format!("{} took possession of {} in {}. The act was {} by no one, and no record was made of the acquisition.", name, art, loc, pick_verb(reg, rng)),
         4 => format!("{}, having located {} in the depths of {}, claimed it under the principle of administrative salvage.", name, art, loc),
         5 => format!("{} secured {} from {}. The item's condition was {} as 'consistent with prolonged neglect.'", name, art, loc, pick_verb(reg, rng)),
         6 => format!("From {} came {}, bearing {}. A {} was {} to mark the occasion, though its filing priority remains undetermined.", loc, name, art, pick_noun(reg, rng), pick_verb(reg, rng)),
@@ -1430,7 +1449,7 @@ pub fn generate_inhabitant_interaction(
 fn gen_inhabitant_ignored(name: &str, inhab: &str, site: &str, reg: NarrativeRegister, _w: f32, rng: &mut StdRng) -> String {
     match rng.gen_range(0..6) {
         0 => format!("{} encountered {} within {}. Neither party acknowledged the other, which appeared to be the preferred protocol.", name, inhab, site),
-        1 => format!("{} passed {} in the corridors of {} without incident. The {} continued whatever it was doing, which was not immediately apparent.", name, inhab, site, inhab),
+        1 => format!("{} passed {} in the corridors of {} without incident. The {} continued whatever it was doing, which was not immediately apparent.", name, inhab, site, without_leading_article(inhab)),
         2 => format!("{} and {} occupied the same chamber in {} for a period the {} would later describe as 'uneventful,' a word doing considerable work.", name, inhab, site, pick_noun(reg, rng)),
         3 => format!("{} was present when {} entered the room, but gave no sign of having noticed. This may have been intentional. It may also have been something else.", inhab, name),
         4 => format!("In {}, {} encountered {}, who declined all forms of interaction with a thoroughness that bordered on artistry.", site, name, inhab),
@@ -1442,7 +1461,7 @@ fn gen_inhabitant_questioned(name: &str, inhab: &str, site: &str, reg: Narrative
     match rng.gen_range(0..6) {
         0 => format!("{} was questioned by {} upon entering {}. The questions concerned matters of {} that {} was not equipped to answer.", name, inhab, site, pick_cause(w, rng), name),
         1 => format!("{} demanded credentials from {} within {}. The credentials produced were {} by the occupant and returned without comment.", inhab, name, site, pick_verb(reg, rng)),
-        2 => format!("{} interrogated {} regarding their business in {}. The business, once explained, was {} by the occupant as 'administratively improbable.'", inhab, name, site, pick_verb(reg, rng)),
+        2 => format!("{} interrogated {} regarding their business in {}. The business, once explained, was dismissed by the occupant as 'administratively improbable.'", inhab, name, site),
         3 => format!("Upon encountering {} in {}, {} asked a series of questions whose answers were apparently unsatisfactory, as they were asked again.", name, site, inhab),
         4 => format!("{} was challenged by {} in {}. The challenge was procedural in nature and concerned documentation that {} did not possess.", name, inhab, site, name),
         _ => format!("{} met {} in the lower reaches of {}. A brief but intense exchange of questions followed, none of which were answered to anyone's satisfaction.", name, inhab, site),
@@ -1464,7 +1483,7 @@ fn gen_inhabitant_drove_out(name: &str, inhab: &str, site: &str, reg: NarrativeR
     match rng.gen_range(0..6) {
         0 => format!("{} was driven from a section of {} by {}, who objected to the intrusion on grounds the {} classified as {}.", name, site, inhab, pick_noun(reg, rng), pick_cause(w, rng)),
         1 => format!("{} made it clear — through means that were not entirely verbal — that {} was not welcome in this part of {}.", inhab, name, site),
-        2 => format!("{} retreated from an encounter with {} in {}, a tactical decision the {} would later {} as 'prudent.'", name, inhab, site, pick_noun(reg, rng), pick_verb(reg, rng)),
+        2 => format!("{} retreated from an encounter with {} in {}, a tactical decision that would later be described as 'prudent.'", name, inhab, site),
         3 => format!("{} expressed territorial displeasure at the presence of {} in {}. The expression was persuasive.", inhab, name, site),
         4 => format!("The deeper corridors of {} proved inhospitable, largely due to the efforts of {}, who regarded {} with what the {} described as 'active disapproval.'", site, inhab, name, pick_noun(reg, rng)),
         _ => format!("{} was expelled from a chamber of {} by {}, who had been there longer and intended to remain longer still.", name, site, inhab),
@@ -1516,7 +1535,7 @@ pub fn generate_seasonal_transition(
         Season::Spring => match rng.gen_range(0..5) {
             0 => format!("The Bureau of Meteorological Affairs {} the onset of Spring. The ledgers have been updated accordingly.", pick_verb(register, rng)),
             1 => "Spring has been declared. The thaw proceeds on schedule, pending the usual approvals.".to_string(),
-            2 => format!("The season has turned to Spring. Several {} were filed regarding the brightness of the light.", pick_noun(register, rng)),
+            2 => "The season has turned to Spring. Several complaints were filed regarding the brightness of the light.".to_string(),
             3 => "The registrar noted the arrival of Spring with a fresh requisition for ink, the previous supply having been depleted by the demands of winter correspondence.".to_string(),
             _ => "Spring. The earth softens. The administrative calendar advances. Both events are treated with equal formality.".to_string(),
         },

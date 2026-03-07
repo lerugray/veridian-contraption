@@ -231,8 +231,12 @@ pub struct SimState {
     weather_template_history: HashMap<usize, (u8, u64)>,
     /// Per-settlement arrival template suppression: maps settlement index -> (last_template_id, tick).
     arrival_template_history: HashMap<usize, (u8, u64)>,
+    /// Global arrival template suppression (cross-settlement): (last_template_id, tick).
+    global_arrival_template_history: Option<(u8, u64)>,
     /// Per-settlement departure template suppression: maps settlement index -> (last_template_id, tick).
     departure_template_history: HashMap<usize, (u8, u64)>,
+    /// Global departure template suppression (cross-settlement): (last_template_id, tick).
+    global_departure_template_history: Option<(u8, u64)>,
     /// Global site-entry template suppression: (last_template_id, tick).
     site_entry_template_history: Option<(u8, u64)>,
     /// Per-site exit template suppression: maps site index -> (last_template_id, tick).
@@ -295,7 +299,9 @@ impl SimState {
             last_season: Season::Spring,
             weather_template_history: HashMap::new(),
             arrival_template_history: HashMap::new(),
+            global_arrival_template_history: None,
             departure_template_history: HashMap::new(),
+            global_departure_template_history: None,
             site_entry_template_history: None,
             site_exit_template_history: HashMap::new(),
             room_desc_template_history: None,
@@ -375,7 +381,9 @@ impl SimState {
             last_season: loaded_season,
             weather_template_history: HashMap::new(),
             arrival_template_history: HashMap::new(),
+            global_arrival_template_history: None,
             departure_template_history: HashMap::new(),
+            global_departure_template_history: None,
             site_entry_template_history: None,
             site_exit_template_history: HashMap::new(),
             room_desc_template_history: None,
@@ -518,10 +526,15 @@ impl SimState {
                             .map(|(i, _)| i);
                         match action.event_type {
                             EventType::AgentArrived => {
-                                let exclude = nearest_sidx.and_then(|si| {
+                                // Per-settlement suppression (50-tick window)
+                                let per_settle = nearest_sidx.and_then(|si| {
                                     self.arrival_template_history.get(&si)
                                         .and_then(|(tmpl, last_tick)| if tick.saturating_sub(*last_tick) < 50 { Some(*tmpl) } else { None })
                                 });
+                                // Global cross-settlement suppression (12-tick window)
+                                let global = self.global_arrival_template_history
+                                    .and_then(|(tmpl, last_tick)| if tick.saturating_sub(last_tick) < 12 { Some(tmpl) } else { None });
+                                let exclude = per_settle.or(global);
                                 let (tmpl_idx, text) = prose_gen::gen_agent_arrived_indexed(
                                     &agent_name, &loc_name,
                                     self.world.params.narrative_register,
@@ -531,13 +544,19 @@ impl SimState {
                                 if let Some(si) = nearest_sidx {
                                     self.arrival_template_history.insert(si, (tmpl_idx, tick));
                                 }
+                                self.global_arrival_template_history = Some((tmpl_idx, tick));
                                 text
                             }
                             EventType::AgentDeparted => {
-                                let exclude = nearest_sidx.and_then(|si| {
+                                // Per-settlement suppression (50-tick window)
+                                let per_settle = nearest_sidx.and_then(|si| {
                                     self.departure_template_history.get(&si)
                                         .and_then(|(tmpl, last_tick)| if tick.saturating_sub(*last_tick) < 50 { Some(*tmpl) } else { None })
                                 });
+                                // Global cross-settlement suppression (12-tick window)
+                                let global = self.global_departure_template_history
+                                    .and_then(|(tmpl, last_tick)| if tick.saturating_sub(last_tick) < 12 { Some(tmpl) } else { None });
+                                let exclude = per_settle.or(global);
                                 let (tmpl_idx, text) = prose_gen::gen_agent_departed_indexed(
                                     &agent_name, &loc_name,
                                     self.world.params.narrative_register,
@@ -547,6 +566,7 @@ impl SimState {
                                 if let Some(si) = nearest_sidx {
                                     self.departure_template_history.insert(si, (tmpl_idx, tick));
                                 }
+                                self.global_departure_template_history = Some((tmpl_idx, tick));
                                 text
                             }
                             _ => {
