@@ -2,7 +2,7 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-use crate::sim::combat::InjuryStatus;
+use crate::sim::combat::{InjuryStatus, CombatHistoryEntry};
 use crate::sim::event::EventType;
 use crate::sim::world::{MAP_HEIGHT, MAP_WIDTH, Terrain};
 
@@ -200,6 +200,9 @@ pub struct Agent {
     /// Tick of last combat (prevents rapid re-engagement).
     #[serde(default)]
     pub last_combat_tick: u64,
+    /// Recent combat history for inspect overlay (capped at 20, oldest dropped).
+    #[serde(default)]
+    pub combat_history: Vec<CombatHistoryEntry>,
 }
 
 impl Agent {

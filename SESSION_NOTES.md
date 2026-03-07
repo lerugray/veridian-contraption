@@ -1,82 +1,70 @@
 # SESSION NOTES — Last updated: 2026-03-07
 
 ## Current State
-- Phase: Phase 5 COMPLETE + combat system + inspect overlay word-wrap fix
-- Last working feature: word_wrap applied to all free-form text in inspect overlay
-- Build status: Compiles cleanly (6 warnings, all dead_code / unused fields)
+- Phase: Phase 5 COMPLETE + combat system + combat history inspect overlay
+- Last working feature: COMBAT HISTORY section in agent inspect overlay
+- Build status: Compiles cleanly (warnings only, all dead_code / unused fields, pre-existing)
 
 ## What We Did This Session
 
-### Combat System Implementation
-Created a complete simulation-driven combat system:
+### Combat History in Inspect Overlay
+Added a COMBAT HISTORY section to the agent inspect overlay showing the last 8 combat events involving the inspected agent.
 
-**New file: src/sim/combat.rs**
-- `InjuryStatus` enum: Uninjured, Bruised, Wounded, GravelyWounded (with serde Default)
-- `CombatExperienceTier` enum: Untested, Blooded, Seasoned, Dangerous (from combats_survived count)
-- `combat_weight()`: hidden stat from risk_tolerance (0.6 weight), age curve (peaks 20-45, declines past 45), experience bonus, injury penalty
-- `resolve_combat()`: roll-based with +/-0.15 random variance, draw threshold 0.05, injury severity scaled by margin
-- `injury_prose()`: prose descriptions for inspect screen, varies by severity and recovery progress
-- `CombatExperienceTier::prose_description()`: 3-4 prose options per tier, no raw stats exposed
+**New types (src/sim/combat.rs):**
+- `CombatOutcome` enum: Win, Loss, Draw (with serde + Default)
+- `CombatHistoryEntry` struct: tick, opponent_name, outcome, prose (serde-compatible)
 
 **Agent changes (src/sim/agent.rs):**
-- New fields (all `#[serde(default)]`): `injury`, `recovery_remaining`, `combats_survived`, `last_combat_tick`
-- New goal: `SeekSettlementForHealing(usize)` — wounded/gravely wounded agents seek nearest settlement
-- Injury recovery: 1 tick per tick, auto-heals to Uninjured when recovery_remaining hits 0
-- Gravely wounded death chance: 0.3% per tick when not at a settlement
-- Wounded movement: moves every other tick when SeekSettlementForHealing
-- `maybe_change_goal()`: wounded agents automatically seek settlement after current goal completes
+- New field: `combat_history: Vec<CombatHistoryEntry>` with `#[serde(default)]`
+- Capped at 20 entries (oldest dropped when exceeded)
+- Import updated to include `CombatHistoryEntry`
 
-**Combat triggers (src/sim/mod.rs — process_combat_tick):**
-- Runs every 5 ticks, checks all agent pairs sharing a tile
-- Rival agents: 1-3% per check (scaled by rivalry intensity)
-- Opposing faction members (Rival institutional relationship): 0.5% per check
-- Volatile agents (risk_tolerance > 0.8, institutional_loyalty < 0.3): 0.2% per check
-- 20-tick cooldown per agent between fights
-- Max 2 combats per tick to prevent spam
-- Only logs combat for notable agents (1+ epithets or 2+ institutions)
+**Recording (src/sim/mod.rs — process_combat_tick):**
+- After injury application, both winner and loser get a CombatHistoryEntry pushed
+- History recorded for ALL combats (not just notable ones that hit the live log)
+- Each entry gets its own prose line from `gen_combat_inspect_prose()`
+- Winner gets `is_winner: true`, loser gets `is_winner: false`; draws get CombatOutcome::Draw for both
 
 **Prose (src/gen/prose_gen.rs):**
-- `gen_combat_indexed()`: 10 templates with register-sensitive verbs/nouns, draw variants (4), win variants (10)
-- Injury clauses appended for Wounded/GravelyWounded outcomes
-- Template suppression via `combat_template_history` (30-tick window)
+- New function: `gen_combat_inspect_prose()` — short one-line combat summaries for inspect view
+- Uses existing `pick_verb()` for register sensitivity
+- Separate pools for: draw (4), win/clean (5), win/injured (3), loss/grave (3), loss/wounded (3), loss/minor (4)
+- All use existing sanitize_prose() and voice conventions
 
-### Inspect Overlay Word-Wrap Fix
-Applied `word_wrap()` consistently to all free-form text in the inspect overlay:
-- Moved `inner_width` computation to top of function (was only computed for Chronicle)
-- **Goal** line: wrapped with " Goal: " prefix, continuation lines indented to match
-- **Relationships** section: name + kind + intensity wrapped as single string
-- **Conversations** section: header (tick + name + tone) and both dialogue lines wrapped
-- **CONDITION** section: injury prose and experience prose wrapped
-- Chronicle already had wrapping (no change needed)
-- Epithets, affiliations, disposition bars, and short label lines don't need wrapping
+**Display (src/ui/overlays.rs):**
+- COMBAT HISTORY section appears below CONDITION, before HELD ARTIFACTS
+- Shows last 8 entries (from the 20 stored)
+- Format: `[tick] [W/L/D] prose line`
+- Color-coded: Win = green (100,200,100), Loss = red (220,80,80), Draw = grey (150,150,150)
+- Word-wrapped using existing `word_wrap()` helper at panel width
+
+**Constructor updates:**
+- `combat_history: Vec::new()` added to all Agent constructors in:
+  - src/gen/world_gen.rs (2 locations)
+  - src/gen/eschaton_gen.rs (1 location)
+  - src/sim/mod.rs (2 locations — birth events)
 
 ## Files Modified This Session
-- src/sim/combat.rs — NEW: combat types, resolution, prose helpers
-- src/sim/agent.rs — injury/experience fields, SeekSettlementForHealing goal, recovery logic
-- src/sim/event.rs — CombatOccurred variant
-- src/sim/mod.rs — combat module, process_combat_tick, template suppression, tension/era tracking
-- src/gen/prose_gen.rs — gen_combat_indexed, CombatOccurred in generate_description
-- src/gen/name_gen.rs — combat epithets
-- src/gen/world_gen.rs — new agent fields in constructors
-- src/gen/eschaton_gen.rs — new agent fields in constructor
-- src/ui/overlays.rs — CONDITION section, word-wrap on all prose sections, removed raw health
-- src/export/mod.rs — condition label instead of raw health
+- src/sim/combat.rs — CombatOutcome enum, CombatHistoryEntry struct
+- src/sim/agent.rs — combat_history field, updated import
+- src/sim/mod.rs — combat history recording in process_combat_tick, constructor updates
+- src/gen/prose_gen.rs — gen_combat_inspect_prose() function
+- src/gen/world_gen.rs — combat_history in agent constructors
+- src/gen/eschaton_gen.rs — combat_history in agent constructor
+- src/ui/overlays.rs — COMBAT HISTORY section in inspect overlay
 
 ## Decisions Made
-- Combat is simulation-only (no player controls) — future adventure mode can build on this
-- Hidden combat_weight — player never sees the number, only prose descriptions of experience
-- Notable-only logging — only agents with epithets or 2+ institutions generate combat log entries
-- Injury severity only worsens (won't overwrite GravelyWounded with Bruised)
-- Gravely wounded persistence for very loyal agents is intentionally rare (~10% of top-10% loyalty)
-- Recovery happens every tick regardless of location, but gravely wounded have death risk when not at settlement
-- Template suppression uses global history (not per-pair) with 30-tick window
-- Word-wrap uses existing `word_wrap()` helper (not `wrap_text()` which is used in faction detail)
+- Combat history is recorded for ALL combats, not just notable ones — the inspect overlay shows the agent's full personal record
+- 20 entries stored, 8 displayed — gives depth without overwhelming the overlay
+- Short one-line prose format for inspect (vs. full paragraph templates used in the live log)
+- New prose templates were necessary — existing gen_combat_indexed templates are full paragraphs, too long for inspect-style entries
+- Color coding matches intuitive expectations: green=win, red=loss, grey=draw
 
 ## Known Issues / To Investigate
-- 6 compiler warnings (all dead_code / unused fields, pre-existing pattern)
+- 6+ compiler warnings (all dead_code / unused fields, pre-existing pattern)
 - combat.rs `loser_id` and `margin` fields on CombatResult are structurally present but trigger unused warnings
 - All template histories are transient (not saved/loaded) — intentional
-- Site-based combat (agent vs site inhabitant) is a trigger condition in the spec but site inhabitants are not full agents — would need separate handling
+- Site-based combat (agent vs site inhabitant) not yet implemented — site inhabitants are not full agents
 
 ## Next Steps
 - Agent vs site inhabitant combat (requires design decision on inhabitant combat model)
@@ -85,7 +73,7 @@ Applied `word_wrap()` consistently to all free-form text in the inspect overlay:
 
 ## Notes for Next Claude
 - Player is not a programmer — explain decisions briefly, don't ask them to edit code
-- All 5 phases complete plus combat system
+- All 5 phases complete plus combat system with inspect history
 - InspectAgent overlay is now InspectAgent(usize, usize) — (agent_idx, scroll_offset)
 - Speed keybindings: 0/1/2/3 (not the old 1/5/2 scheme)
 - SESSION_NOTES.md should be fully rewritten each update, not appended to
@@ -97,7 +85,7 @@ Applied `word_wrap()` consistently to all free-form text in the inspect overlay:
 - Global arrival/departure suppression (12-tick window) is in addition to per-settlement (50-tick window)
 - sanitize_prose now handles both ",." → "." and "upon upon" → "upon"
 - Combat template suppression is global (not per-agent-pair), 30-tick window
-- Agent fields for combat: injury (InjuryStatus), recovery_remaining (u32), combats_survived (u16), last_combat_tick (u64) — all #[serde(default)]
+- Agent fields for combat: injury (InjuryStatus), recovery_remaining (u32), combats_survived (u16), last_combat_tick (u64), combat_history (Vec<CombatHistoryEntry>) — all #[serde(default)]
 - InstitutionRelationship::Rival is what drives faction-based combat triggers (not DiplomaticStance)
-- Inspect overlay: `inner_width` computed once at top, `word_wrap()` used for Goal, Relationships, Conversations, Condition, Chronicle
+- Inspect overlay sections in order: header, epithets, status, goal, affiliations, relationships, conversations, CONDITION, COMBAT HISTORY, HELD ARTIFACTS, DISPOSITION, CHRONICLE, footer
 - Two different wrap helpers exist: `word_wrap()` (inspect overlay) and `wrap_text()` (faction detail) — they do the same thing

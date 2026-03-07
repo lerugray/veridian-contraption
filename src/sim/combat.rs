@@ -85,6 +85,29 @@ impl CombatExperienceTier {
     }
 }
 
+/// Outcome of a combat from one participant's perspective.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CombatOutcome {
+    Win,
+    Loss,
+    Draw,
+}
+
+impl Default for CombatOutcome {
+    fn default() -> Self {
+        CombatOutcome::Draw
+    }
+}
+
+/// A single entry in an agent's combat history (for the inspect overlay).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CombatHistoryEntry {
+    pub tick: u64,
+    pub opponent_name: String,
+    pub outcome: CombatOutcome,
+    pub prose: String,
+}
+
 /// Result of a single combat resolution.
 pub struct CombatResult {
     pub winner_id: u64,

@@ -744,6 +744,7 @@ pub fn execute_arrival(
             recovery_remaining: 0,
             combats_survived: 0,
             last_combat_tick: 0,
+            combat_history: Vec::new(),
         };
         agents.push(agent);
         id += 1;

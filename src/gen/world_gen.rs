@@ -159,6 +159,7 @@ pub fn generate_world(seed: u64, flavor: WorldFlavor) -> (World, Vec<Agent>, Vec
             recovery_remaining: 0,
             combats_survived: 0,
             last_combat_tick: 0,
+            combat_history: Vec::new(),
         });
     }
 
@@ -435,6 +436,7 @@ fn generate_agents(
             recovery_remaining: 0,
             combats_survived: 0,
             last_combat_tick: 0,
+            combat_history: Vec::new(),
         });
     }
 

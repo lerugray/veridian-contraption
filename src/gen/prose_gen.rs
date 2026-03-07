@@ -2036,3 +2036,77 @@ pub fn gen_combat_indexed(
 
     (idx, sanitize_prose(text))
 }
+
+/// Generate a short one-line combat prose entry for the agent inspect overlay.
+/// Uses the existing voice/register but keeps it brief.
+pub fn gen_combat_inspect_prose(
+    opponent: &str,
+    is_draw: bool,
+    is_winner: bool,
+    injury: InjuryStatus,
+    reg: NarrativeRegister,
+    rng: &mut StdRng,
+) -> String {
+    let verb = pick_verb(reg, rng);
+
+    let text = if is_draw {
+        let opts: &[&str] = &[
+            &format!("Met {} in a matter that resolved itself through mutual exhaustion.", opponent),
+            &format!("Engaged {} to no conclusive outcome.", opponent),
+            &format!("Disputed a matter with {} that neither party could claim to have won.", opponent),
+            &format!("Exchanged disagreements with {}. The result was inconclusive.", opponent),
+        ];
+        opts[rng.gen_range(0..opts.len())].to_string()
+    } else if is_winner {
+        match injury {
+            InjuryStatus::GravelyWounded | InjuryStatus::Wounded => {
+                let opts: &[&str] = &[
+                    &format!("Prevailed over {}, though not without cost.", opponent),
+                    &format!("Overcame {} in a manner {} as 'contested.'", opponent, verb),
+                    &format!("Bested {} but sustained injuries in the process.", opponent),
+                ];
+                opts[rng.gen_range(0..opts.len())].to_string()
+            }
+            _ => {
+                let opts: &[&str] = &[
+                    &format!("Prevailed over {} with characteristic efficiency.", opponent),
+                    &format!("Settled a dispute with {} decisively.", opponent),
+                    &format!("Met {} and {} the encounter in their favor.", opponent, verb),
+                    &format!("Overcame {} in a matter requiring no further adjudication.", opponent),
+                    &format!("Was found to have the more persuasive argument against {}.", opponent),
+                ];
+                opts[rng.gen_range(0..opts.len())].to_string()
+            }
+        }
+    } else {
+        match injury {
+            InjuryStatus::GravelyWounded => {
+                let opts: &[&str] = &[
+                    &format!("Was gravely bested by {} in a confrontation of some severity.", opponent),
+                    &format!("Lost a dispute with {} and sustained injuries of administrative concern.", opponent),
+                    &format!("Fell to {} under circumstances requiring formal documentation.", opponent),
+                ];
+                opts[rng.gen_range(0..opts.len())].to_string()
+            }
+            InjuryStatus::Wounded => {
+                let opts: &[&str] = &[
+                    &format!("Lost to {} and departed the encounter diminished.", opponent),
+                    &format!("Was {} by {} and sustained wounds requiring attention.", verb, opponent),
+                    &format!("Came second in a disagreement with {}. Injuries followed.", opponent),
+                ];
+                opts[rng.gen_range(0..opts.len())].to_string()
+            }
+            _ => {
+                let opts: &[&str] = &[
+                    &format!("Was bested by {} in a brief encounter.", opponent),
+                    &format!("Lost a matter to {} that required no further review.", opponent),
+                    &format!("Came out the worse in a dispute with {}.", opponent),
+                    &format!("Was overcome by {} without lasting consequence.", opponent),
+                ];
+                opts[rng.gen_range(0..opts.len())].to_string()
+            }
+        }
+    };
+
+    sanitize_prose(text)
+}

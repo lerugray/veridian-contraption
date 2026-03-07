@@ -277,6 +277,47 @@ pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize,
         }
     }
 
+    // Combat history section (last 8 entries)
+    if !agent.combat_history.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(" COMBAT HISTORY", Style::default().fg(Color::White))));
+        let max_combat = inner_width.saturating_sub(2).max(1);
+        let history = if agent.combat_history.len() > 8 {
+            &agent.combat_history[agent.combat_history.len() - 8..]
+        } else {
+            &agent.combat_history
+        };
+        for entry in history {
+            use crate::sim::combat::CombatOutcome;
+            let color = match entry.outcome {
+                CombatOutcome::Win => Color::Rgb(100, 200, 100),
+                CombatOutcome::Loss => Color::Rgb(220, 80, 80),
+                CombatOutcome::Draw => Color::Rgb(150, 150, 150),
+            };
+            let outcome_tag = match entry.outcome {
+                CombatOutcome::Win => "W",
+                CombatOutcome::Loss => "L",
+                CombatOutcome::Draw => "D",
+            };
+            let prefix = format!("  [{}] [{}] ", entry.tick, outcome_tag);
+            let wrapped = word_wrap(&entry.prose, max_combat.saturating_sub(prefix.len()).max(1));
+            for (i, chunk) in wrapped.iter().enumerate() {
+                if i == 0 {
+                    lines.push(Line::from(vec![
+                        Span::styled(prefix.clone(), Style::default().fg(Color::DarkGray)),
+                        Span::styled(chunk.clone(), Style::default().fg(color)),
+                    ]));
+                } else {
+                    let indent = " ".repeat(prefix.len());
+                    lines.push(Line::from(vec![
+                        Span::styled(indent, Style::default()),
+                        Span::styled(chunk.clone(), Style::default().fg(color)),
+                    ]));
+                }
+            }
+        }
+    }
+
     // Held artifacts
     if !agent.held_artifacts.is_empty() {
         lines.push(Line::from(Span::styled(" HELD ARTIFACTS", Style::default().fg(Color::White))));

@@ -1260,6 +1260,7 @@ impl SimState {
             recovery_remaining: 0,
             combats_survived: 0,
             last_combat_tick: 0,
+            combat_history: Vec::new(),
             });
 
             events.push(Event {
@@ -1408,6 +1409,7 @@ impl SimState {
             recovery_remaining: 0,
             combats_survived: 0,
             last_combat_tick: 0,
+            combat_history: Vec::new(),
             });
 
             events.push(Event {
@@ -2111,6 +2113,48 @@ impl SimState {
             } else if loser.injury == InjuryStatus::Wounded {
                 // Wounded: seek settlement after current goal completes (set flag)
                 // We handle this by checking in maybe_change_goal
+            }
+
+            // Record combat history on both agents (always, not just for notable combats)
+            {
+                use crate::sim::combat::{CombatOutcome, CombatHistoryEntry};
+
+                let winner_name = self.agents[winner_idx].display_name();
+                let loser_name = self.agents[loser_idx].display_name();
+
+                let (w_outcome, l_outcome) = if result.is_draw {
+                    (CombatOutcome::Draw, CombatOutcome::Draw)
+                } else {
+                    (CombatOutcome::Win, CombatOutcome::Loss)
+                };
+
+                // Generate prose for winner's history entry
+                let winner_prose = prose_gen::gen_combat_inspect_prose(
+                    &loser_name, result.is_draw, true, result.winner_injury,
+                    register, &mut self.rng,
+                );
+                let winner_entry = CombatHistoryEntry {
+                    tick, opponent_name: loser_name.clone(), outcome: w_outcome, prose: winner_prose,
+                };
+                let w = &mut self.agents[winner_idx];
+                w.combat_history.push(winner_entry);
+                if w.combat_history.len() > 20 {
+                    w.combat_history.remove(0);
+                }
+
+                // Generate prose for loser's history entry
+                let loser_prose = prose_gen::gen_combat_inspect_prose(
+                    &winner_name, result.is_draw, false, result.loser_injury,
+                    register, &mut self.rng,
+                );
+                let loser_entry = CombatHistoryEntry {
+                    tick, opponent_name: winner_name.clone(), outcome: l_outcome, prose: loser_prose,
+                };
+                let l = &mut self.agents[loser_idx];
+                l.combat_history.push(loser_entry);
+                if l.combat_history.len() > 20 {
+                    l.combat_history.remove(0);
+                }
             }
 
             // Generate log event if notable
