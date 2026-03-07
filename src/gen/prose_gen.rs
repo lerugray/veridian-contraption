@@ -405,6 +405,8 @@ pub fn generate_description(
             "The season has changed.".to_string(), // handled by dedicated generator
         EventType::RelationshipFormed | EventType::RelationshipChanged =>
             format!("{} has had a change in personal associations near {}.", name, loc),
+        EventType::ConversationOccurred =>
+            format!("{} was involved in a conversation of note near {}.", name, loc),
     }
 }
 
@@ -1400,5 +1402,227 @@ pub fn generate_relationship_event(
             "Friend" => format!("{} and {} have reconciled. The registrar has re-opened the relevant file.", agent_name, other_name),
             _ => format!("The relationship between {} and {} has been reclassified. The paperwork is ongoing.", agent_name, other_name),
         }
+    }
+}
+
+/// Generate a conversation between two agents. Returns (line_a, line_b).
+pub fn generate_conversation(
+    name_a: &str,
+    name_b: &str,
+    tone: crate::sim::agent::ConversationTone,
+    rng: &mut StdRng,
+) -> (String, String) {
+    use crate::sim::agent::ConversationTone;
+    match tone {
+        ConversationTone::Mundane => match rng.gen_range(0..10) {
+            0 => (
+                format!("{} asked {} about the grain situation.", name_a, name_b),
+                format!("{} said it was being handled.", name_b),
+            ),
+            1 => (
+                format!("{} inquired about the state of the roads.", name_a),
+                format!("{} indicated they were adequate, if unimproved.", name_b),
+            ),
+            2 => (
+                format!("{} mentioned the weather to {}.", name_a, name_b),
+                format!("{} agreed it was, in fact, weather.", name_b),
+            ),
+            3 => (
+                format!("{} asked {} whether the census had been updated.", name_a, name_b),
+                format!("{} confirmed it had not, and expressed no surprise.", name_b),
+            ),
+            4 => (
+                format!("{} remarked on the quality of local provisions.", name_a),
+                format!("{} offered no opinion but adjusted their posture.", name_b),
+            ),
+            5 => (
+                format!("{} asked {} about recent arrivals.", name_a, name_b),
+                format!("{} listed several, then trailed off.", name_b),
+            ),
+            6 => (
+                format!("{} observed that the settlement seemed quieter than usual.", name_a),
+                format!("{} said this was either good or bad, depending.", name_b),
+            ),
+            7 => (
+                format!("{} asked {} how long they had been here.", name_a, name_b),
+                format!("{} gave an answer that implied it had been too long.", name_b),
+            ),
+            8 => (
+                format!("{} mentioned a rumor about supply shortages.", name_a),
+                format!("{} said rumors were not within their purview.", name_b),
+            ),
+            _ => (
+                format!("{} and {} discussed the schedule.", name_a, name_b),
+                "Neither party found it satisfactory.".to_string(),
+            ),
+        },
+        ConversationTone::Warm => match rng.gen_range(0..10) {
+            0 => (
+                format!("{} and {} were observed in extended conversation.", name_a, name_b),
+                "Neither party filed a report.".to_string(),
+            ),
+            1 => (
+                format!("{} offered {} a seat and something unspecified to drink.", name_a, name_b),
+                format!("{} accepted both without hesitation.", name_b),
+            ),
+            2 => (
+                format!("{} spoke at length about a matter of personal importance.", name_a),
+                format!("{} listened with what the registrar classified as genuine attention.", name_b),
+            ),
+            3 => (
+                format!("{} and {} shared a meal of unremarkable quality.", name_a, name_b),
+                "The conversation, by contrast, was noted as substantial.".to_string(),
+            ),
+            4 => (
+                format!("{} recalled an incident from years prior.", name_a),
+                format!("{} finished the account, unprompted.", name_b),
+            ),
+            5 => (
+                format!("{} expressed concern for {}'s recent difficulties.", name_a, name_b),
+                format!("{} said the concern was noted and appreciated.", name_b),
+            ),
+            6 => (
+                format!("{} and {} walked together for some distance.", name_a, name_b),
+                "The registrar observed that neither appeared to be going anywhere in particular.".to_string(),
+            ),
+            7 => (
+                format!("{} admitted something to {} that had apparently been weighing on them.", name_a, name_b),
+                format!("{} received the information with notable grace.", name_b),
+            ),
+            8 => (
+                format!("{} greeted {} with visible warmth.", name_a, name_b),
+                format!("{} returned the greeting and inquired after {}'s household.", name_b, name_a),
+            ),
+            _ => (
+                format!("{} and {} exchanged words that the registrar declined to transcribe.", name_a, name_b),
+                "The tone was described as amicable.".to_string(),
+            ),
+        },
+        ConversationTone::Tense => match rng.gen_range(0..10) {
+            0 => (
+                format!("{} and {} exchanged views on the matter.", name_a, name_b),
+                "The views did not survive the exchange.".to_string(),
+            ),
+            1 => (
+                format!("{} raised a point of contention with {}.", name_a, name_b),
+                format!("{} raised a louder one in response.", name_b),
+            ),
+            2 => (
+                format!("{} accused {} of procedural negligence.", name_a, name_b),
+                format!("{} accused {} of the same, more emphatically.", name_b, name_a),
+            ),
+            3 => (
+                format!("{} spoke to {} in terms the registrar classified as 'pointed.'", name_a, name_b),
+                format!("{} responded in kind. The classification was upgraded.", name_b),
+            ),
+            4 => (
+                format!("{} questioned {}'s judgment in public.", name_a, name_b),
+                format!("{} questioned {}'s authority to question it.", name_b, name_a),
+            ),
+            5 => (
+                format!("{} and {} disagreed on a matter of documented fact.", name_a, name_b),
+                "The document was subsequently disputed.".to_string(),
+            ),
+            6 => (
+                format!("{} informed {} that certain arrangements were no longer acceptable.", name_a, name_b),
+                format!("{} informed {} that this was not their decision to make.", name_b, name_a),
+            ),
+            7 => (
+                format!("{} suggested that {} reconsider their position.", name_a, name_b),
+                format!("{} declined, citing precedent and personal conviction.", name_b),
+            ),
+            8 => (
+                format!("{} and {} held a meeting that the registrar described as 'vigorous.'", name_a, name_b),
+                "No resolution was reached. The furniture was rearranged.".to_string(),
+            ),
+            _ => (
+                format!("{} delivered a formal complaint to {} in person.", name_a, name_b),
+                format!("{} received it with visible displeasure.", name_b),
+            ),
+        },
+        ConversationTone::Cryptic => match rng.gen_range(0..10) {
+            0 => (
+                format!("{} told {} something that {} did not repeat.", name_b, name_a, name_a),
+                format!("{}'s route changed the following tick.", name_a),
+            ),
+            1 => (
+                format!("{} asked {} a question with no obvious referent.", name_a, name_b),
+                format!("{} answered as though it had one.", name_b),
+            ),
+            2 => (
+                format!("{} passed {} a document that was not filed.", name_a, name_b),
+                format!("{} read it and returned it without comment.", name_b),
+            ),
+            3 => (
+                format!("{} and {} spoke in terms the registrar could not parse.", name_a, name_b),
+                "Both parties appeared satisfied with the result.".to_string(),
+            ),
+            4 => (
+                format!("{} made reference to an event that has not been recorded.", name_a),
+                format!("{} nodded as though the reference were sufficient.", name_b),
+            ),
+            5 => (
+                format!("{} whispered something to {} near the filing office.", name_a, name_b),
+                format!("{} left immediately afterward. The reason was not stated.", name_b),
+            ),
+            6 => (
+                format!("{} drew a symbol in the margin of a public ledger.", name_a),
+                format!("{} erased it after reading. Neither acknowledged the act.", name_b),
+            ),
+            7 => (
+                format!("{} and {} exchanged a glance the registrar found 'administratively irregular.'", name_a, name_b),
+                "No further notation was made.".to_string(),
+            ),
+            8 => (
+                format!("{} said a single word to {}.", name_a, name_b),
+                format!("{} appeared to understand it. The word was not recorded.", name_b),
+            ),
+            _ => (
+                format!("{} left something on {}'s desk.", name_a, name_b),
+                format!("{} removed it before the registrar could note what it was.", name_b),
+            ),
+        },
+        ConversationTone::Significant => match rng.gen_range(0..10) {
+            0 => (
+                format!("{} informed {} of a development.", name_a, name_b),
+                format!("{} later described it as 'foreseeable in retrospect.'", name_b),
+            ),
+            1 => (
+                format!("{} delivered news that altered {}'s stated plans.", name_a, name_b),
+                format!("{} requested time to consider implications.", name_b),
+            ),
+            2 => (
+                format!("{} and {} reached an understanding on a matter of consequence.", name_a, name_b),
+                "The understanding was not documented but was subsequently evident.".to_string(),
+            ),
+            3 => (
+                format!("{} revealed information that {} had been seeking.", name_a, name_b),
+                format!("{} received it with the composure of one who had been expecting it.", name_b),
+            ),
+            4 => (
+                format!("{} proposed something to {} that required no second proposal.", name_a, name_b),
+                format!("{} agreed on terms the registrar was not authorized to record.", name_b),
+            ),
+            5 => (
+                format!("{} shared a confidence with {} of institutional weight.", name_a, name_b),
+                format!("{} treated the confidence with appropriate severity.", name_b),
+            ),
+            6 => (
+                format!("{} and {} concluded an exchange that the registrar classified as 'pivotal.'", name_a, name_b),
+                "Subsequent events would confirm the classification.".to_string(),
+            ),
+            7 => (
+                format!("{} presented {} with evidence of something previously unverified.", name_a, name_b),
+                format!("{} verified it on the spot and said nothing further.", name_b),
+            ),
+            8 => (
+                format!("{} made an offer to {} that carried implications beyond its terms.", name_a, name_b),
+                format!("{} accepted. The implications were left unspoken.", name_b),
+            ),
+            _ => (
+                format!("{} and {} spoke for exactly seven minutes.", name_a, name_b),
+                "The registrar noted that both left in different directions than they had arrived.".to_string(),
+            ),
+        },
     }
 }

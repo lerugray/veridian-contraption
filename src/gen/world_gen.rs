@@ -154,6 +154,7 @@ pub fn generate_world(seed: u64, flavor: WorldFlavor) -> (World, Vec<Agent>, Vec
             is_adventurer: true,
             held_artifacts: Vec::new(),
             relationships: Vec::new(),
+            conversations: Vec::new(),
         });
     }
 
@@ -425,6 +426,7 @@ fn generate_agents(
             is_adventurer: false,
             held_artifacts: Vec::new(),
             relationships: Vec::new(),
+            conversations: Vec::new(),
         });
     }
 

@@ -166,6 +166,35 @@ pub fn draw_inspect_overlay(frame: &mut Frame, sim: &SimState, agent_idx: usize,
         }
     }
 
+    // Conversations
+    let recent_convos: Vec<_> = agent.conversations.iter().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect();
+    if !recent_convos.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(" CONVERSATIONS", Style::default().fg(Color::White))));
+        for conv in &recent_convos {
+            let other_name = sim.agents.iter()
+                .find(|a| a.id == conv.other_id)
+                .map(|a| a.display_name())
+                .unwrap_or_else(|| "unknown".to_string());
+            let tone_color = conv.tone.display_color();
+            // Header: tick, other name, tone
+            lines.push(Line::from(vec![
+                Span::styled(format!("  [{}] ", conv.tick), Style::default().fg(Color::DarkGray)),
+                Span::styled(other_name, Style::default().fg(Color::Cyan)),
+                Span::styled(format!(" ({})", conv.tone.label()), Style::default().fg(tone_color)),
+            ]));
+            // Lines of conversation
+            lines.push(Line::from(Span::styled(
+                format!("    {}", conv.line_a),
+                Style::default().fg(tone_color),
+            )));
+            lines.push(Line::from(Span::styled(
+                format!("    {}", conv.line_b),
+                Style::default().fg(tone_color),
+            )));
+        }
+    }
+
     // Adventurer flag
     if agent.is_adventurer {
         lines.push(Line::from(Span::styled(" ADVENTURER", Style::default().fg(Color::LightYellow))));

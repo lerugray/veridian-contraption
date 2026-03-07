@@ -630,6 +630,10 @@ impl SimState {
         let mut rel_events = self.process_relationship_tick(tick);
         new_events.append(&mut rel_events);
 
+        // --- Conversation simulation ---
+        let mut conv_events = self.process_conversation_tick(tick);
+        new_events.append(&mut conv_events);
+
         // Generate epithets for agents who had notable events this tick.
         // Each agent can gain at most one epithet, and only if 50+ ticks since the last.
         for event in &new_events {
@@ -1060,6 +1064,7 @@ impl SimState {
                 is_adventurer: false,
                 held_artifacts: Vec::new(),
                 relationships: Vec::new(),
+            conversations: Vec::new(),
             });
 
             events.push(Event {
@@ -1165,6 +1170,7 @@ impl SimState {
                 is_adventurer: self.rng.gen_bool(0.1), // small chance of arriving as adventurer
                 held_artifacts: Vec::new(),
                 relationships: Vec::new(),
+            conversations: Vec::new(),
             });
 
             events.push(Event {
@@ -1743,15 +1749,31 @@ impl SimState {
         // --- Formation ---
         // Friendship: co-located agents with compatible dispositions
         for &(ai, bi) in &proximity_pairs {
-            if self.rng.gen_bool(0.985) { continue; } // ~1.5% per pair per 20 ticks
             let a = &self.agents[ai];
             let b = &self.agents[bi];
+
+            // Count recent conversation tones between this pair (last 10)
+            let recent_convos: Vec<agent::ConversationTone> = a.conversations.iter()
+                .rev().take(10)
+                .filter(|c| c.other_id == b.id)
+                .map(|c| c.tone)
+                .collect();
+            let warm_count = recent_convos.iter().filter(|t| **t == agent::ConversationTone::Warm).count();
+            let significant_count = recent_convos.iter().filter(|t| **t == agent::ConversationTone::Significant).count();
+
+            // Base ~1.5% chance, boosted by warm conversations (+50% if 4+ warm)
+            let base_skip = if warm_count >= 4 { 0.9775 } else { 0.985 }; // 2.25% vs 1.5%
+            if self.rng.gen_bool(base_skip) { continue; }
+
             // Skip if they already have a relationship
             if a.relationships.iter().any(|r| r.other_id == b.id) { continue; }
             // Disposition compatibility: similar loyalty and ambition
             let compat = 1.0 - ((a.disposition.institutional_loyalty - b.disposition.institutional_loyalty).abs()
                 + (a.disposition.ambition - b.disposition.ambition).abs()) / 2.0;
             if compat < 0.4 { continue; }
+
+            // Significant conversations count as notable relationship events
+            let _ = significant_count; // used below in notability check
 
             let a_name = a.display_name();
             let b_name = b.display_name();
@@ -1778,10 +1800,12 @@ impl SimState {
             });
 
             // Only log notable relationship events (agents with institutional power or many epithets)
+            // Significant conversations also trigger notability
             let notable = self.agents[ai].institution_ids.len() >= 2
                 || self.agents[bi].institution_ids.len() >= 2
                 || self.agents[ai].epithets.len() >= 2
-                || self.agents[bi].epithets.len() >= 2;
+                || self.agents[bi].epithets.len() >= 2
+                || significant_count >= 1;
             if notable {
                 let description = prose_gen::generate_relationship_event(
                     &a_name, &b_name, kind.0.label(), true,
@@ -1799,9 +1823,19 @@ impl SimState {
 
         // Rivalry: agents in competing institutions or conflicting dispositions
         for &(ai, bi) in &proximity_pairs {
-            if self.rng.gen_bool(0.99) { continue; } // ~1%
             let a = &self.agents[ai];
             let b = &self.agents[bi];
+
+            // Count tense conversations between this pair (last 10)
+            let tense_count = a.conversations.iter()
+                .rev().take(10)
+                .filter(|c| c.other_id == b.id && c.tone == agent::ConversationTone::Tense)
+                .count();
+
+            // Base ~1% chance, boosted by tense conversations (+50% if 4+ tense)
+            let base_skip = if tense_count >= 4 { 0.985 } else { 0.99 }; // 1.5% vs 1%
+            if self.rng.gen_bool(base_skip) { continue; }
+
             if a.relationships.iter().any(|r| r.other_id == b.id) { continue; }
 
             // Conflicting institutions or very different dispositions
@@ -2066,6 +2100,119 @@ impl SimState {
                 .filter(|r| self.agents.iter().any(|o| o.id == r.other_id && o.alive))
                 .count())
             .sum::<usize>() / 2
+    }
+
+    /// Process conversation generation between co-located agents.
+    /// Runs every 30 ticks.
+    fn process_conversation_tick(&mut self, tick: u64) -> Vec<Event> {
+        let mut events = Vec::new();
+        if tick % 30 != 0 {
+            return events;
+        }
+
+        // Build co-location map
+        let mut agents_at: std::collections::HashMap<(u32, u32), Vec<usize>> = std::collections::HashMap::new();
+        for (i, a) in self.agents.iter().enumerate() {
+            if a.alive {
+                agents_at.entry((a.x, a.y)).or_default().push(i);
+            }
+        }
+
+        // Collect pairs to converse
+        let mut conversation_pairs: Vec<(usize, usize)> = Vec::new();
+        for indices in agents_at.values() {
+            if indices.len() < 2 { continue; }
+            let limit = indices.len().min(6);
+            for i in 0..limit {
+                for j in (i + 1)..limit {
+                    // ~3% chance per pair
+                    if self.rng.gen_bool(0.03) {
+                        conversation_pairs.push((indices[i], indices[j]));
+                    }
+                }
+            }
+        }
+
+        for (ai, bi) in conversation_pairs {
+            // Extract data before mutable borrow
+            let rel_kind = self.agents[ai].relationships.iter()
+                .find(|r| r.other_id == self.agents[bi].id)
+                .map(|r| r.kind);
+            let a_name = self.agents[ai].display_name();
+            let b_name = self.agents[bi].display_name();
+            let a_id = self.agents[ai].id;
+            let b_id = self.agents[bi].id;
+            let loc = (self.agents[ai].x, self.agents[ai].y);
+
+            // Determine tone weighted by relationship
+            let tone = self.pick_conversation_tone(rel_kind);
+
+            let (line_a, line_b) = prose_gen::generate_conversation(
+                &a_name, &b_name, tone, &mut self.rng,
+            );
+
+            let conv_a = agent::Conversation {
+                other_id: b_id, tick, line_a: line_a.clone(), line_b: line_b.clone(), tone,
+            };
+            let conv_b = agent::Conversation {
+                other_id: a_id, tick, line_a: line_a.clone(), line_b: line_b.clone(), tone,
+            };
+
+            // Push and cap at 20
+            self.agents[ai].conversations.push(conv_a);
+            if self.agents[ai].conversations.len() > 20 {
+                self.agents[ai].conversations.remove(0);
+            }
+            self.agents[bi].conversations.push(conv_b);
+            if self.agents[bi].conversations.len() > 20 {
+                self.agents[bi].conversations.remove(0);
+            }
+
+            // Only log Significant conversations involving notable agents
+            if tone == agent::ConversationTone::Significant {
+                let a_notable = self.agents[ai].institution_ids.len() >= 2
+                    || self.agents[ai].epithets.len() >= 2;
+                let b_notable = self.agents[bi].institution_ids.len() >= 2
+                    || self.agents[bi].epithets.len() >= 2;
+                if a_notable || b_notable {
+                    events.push(Event {
+                        tick,
+                        event_type: EventType::ConversationOccurred,
+                        subject_id: Some(a_id),
+                        location: Some(loc),
+                        description: format!("{} {}", line_a, line_b),
+                    });
+                }
+            }
+        }
+
+        events
+    }
+
+    /// Pick a conversation tone weighted by relationship kind.
+    fn pick_conversation_tone(&mut self, rel_kind: Option<agent::RelationshipKind>) -> agent::ConversationTone {
+        use agent::ConversationTone::*;
+        use agent::RelationshipKind;
+
+        // Weights: [Mundane, Warm, Tense, Cryptic, Significant]
+        let weights: [f32; 5] = match rel_kind {
+            Some(RelationshipKind::Friend) | Some(RelationshipKind::Partner) => [0.15, 0.45, 0.05, 0.15, 0.20],
+            Some(RelationshipKind::Mentor) | Some(RelationshipKind::Protege) => [0.20, 0.30, 0.05, 0.20, 0.25],
+            Some(RelationshipKind::Rival) => [0.10, 0.05, 0.50, 0.20, 0.15],
+            Some(RelationshipKind::Estranged) => [0.15, 0.05, 0.40, 0.30, 0.10],
+            None => [0.40, 0.10, 0.10, 0.30, 0.10],
+        };
+
+        let roll: f32 = self.rng.gen();
+        let mut cumulative = 0.0;
+        let tones = [Mundane, Warm, Tense, Cryptic, Significant];
+        for (i, &w) in weights.iter().enumerate() {
+            cumulative += w;
+            if roll < cumulative {
+                return tones[i];
+            }
+        }
+        Mundane
     }
 
     /// Process adventurer artifact-related actions for one tick.

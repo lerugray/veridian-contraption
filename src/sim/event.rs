@@ -43,6 +43,8 @@ pub enum EventType {
     // Relationship events
     RelationshipFormed,
     RelationshipChanged,
+    // Conversation events (only Significant + notable agents)
+    ConversationOccurred,
     // Seasonal events
     SeasonalTransition,
     // Eschaton events
@@ -63,7 +65,8 @@ impl EventType {
             | EventType::AgentImmigrated
             | EventType::NaturalDeath
             | EventType::RelationshipFormed
-            | EventType::RelationshipChanged => Color::Rgb(200, 200, 195),
+            | EventType::RelationshipChanged
+            | EventType::ConversationOccurred => Color::Rgb(200, 200, 195),
 
             // Institutional/faction events — teal
             EventType::InstitutionFounded
@@ -112,7 +115,8 @@ impl EventType {
             | EventType::AgentDeparted | EventType::AgeEvent
             | EventType::AgentEmigrated | EventType::AgentImmigrated
             | EventType::NaturalDeath
-            | EventType::RelationshipFormed | EventType::RelationshipChanged => "".to_string(),
+            | EventType::RelationshipFormed | EventType::RelationshipChanged
+            | EventType::ConversationOccurred => "".to_string(),
 
             EventType::InstitutionFounded | EventType::InstitutionDissolved
             | EventType::SchismOccurred | EventType::DoctrineShifted

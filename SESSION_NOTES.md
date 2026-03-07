@@ -1,55 +1,59 @@
 # SESSION NOTES — Last updated: 2026-03-06
 
 ## Current State
-- Phase: Phase 5 COMPLETE + post-phase polish (seasons, relationships, inspect fixes)
-- Last working feature: Inspect overlay scroll capping
+- Phase: Phase 5 COMPLETE + post-phase polish (seasons, relationships, conversations, inspect fixes)
+- Last working feature: Agent conversation system
 - Build status: Compiles and runs cleanly (5 warnings, all pre-existing dead_code)
 - Tests: All passing
 
 ## What We Did
-- Implemented a full agent relationship system
-- Fixed inspect overlay chronicle display (word-wrap, scrolling, scroll bounds)
+- Implemented a full agent conversation system with flavor and mechanical weight
 
-### Relationship System
-- **Types**: Friend, Rival, Partner, Mentor/Protégé, Estranged (with intensity 1-3)
-- **Formation**: Proximity-based (agents at same tile), every 20 ticks
-  - Friends: compatible dispositions (~1.5% chance per co-located pair)
-  - Rivals: conflicting institutions or opposed dispositions (~1%)
-  - Partners: high compatibility + rare roll
-  - Mentor/Protégé: older agent (10+ years) sharing institution with younger
-- **Evolution** (every 100 ticks): friendships deepen/cool, partners deepen/dissolve, rivals intensify/reconcile
-- **Behavioral effects**: friends accompany to sites, partners boost adventuring, estranged flee, protégés get 3x join boost
-- **Visibility**: inspect overlay RELATIONSHIPS section, world report count, log events for notable agents only
-- **Event types**: RelationshipFormed, RelationshipChanged
-- **Save compat**: #[serde(default)] for old saves
-
-### Inspect Overlay Fixes
-- Chronicle entries word-wrap at word boundaries (word_wrap helper function)
-- Inspect overlay is scrollable (Up/Down/PgUp/PgDn)
-- Scroll capped so it stops at last entry (no empty space past end)
-- InspectAgent overlay variant now stores (agent_idx, scroll_offset)
+### Conversation System
+- **ConversationTone enum**: Warm, Tense, Cryptic, Mundane, Significant
+- **Conversation struct**: other_id, tick, line_a, line_b, tone — stored per agent
+- **Storage**: `conversations: Vec<Conversation>` on Agent, capped at 20 per agent, oldest dropped
+- **Generation**: `generate_conversation()` in prose_gen.rs — 10 templates per tone (50 total)
+  - Tone is deadpan bureaucratic throughout, matching the game's voice
+- **Trigger**: `process_conversation_tick()` runs every 30 ticks
+  - For each pair of agents sharing a tile, ~3% chance of a conversation
+  - Tone is weighted by existing relationship:
+    - Friends/Partners skew Warm (45%)
+    - Rivals skew Tense (50%)
+    - No relationship skews Mundane (40%) / Cryptic (30%)
+    - Mentors skew Warm (30%) / Significant (25%)
+- **Mechanical effects on relationships**:
+  - 4+ Warm conversations in last 10 → friendship formation probability +50% (1.5% → 2.25%)
+  - 4+ Tense conversations in last 10 → rivalry formation probability +50% (1% → 1.5%)
+  - 1+ Significant conversations → triggers notability (same as notable agents for log output)
+- **Inspect overlay**: CONVERSATIONS section between RELATIONSHIPS and ADVENTURER
+  - Shows last 6 conversations: tick, other agent name, both lines
+  - Tone colors: Warm=green, Tense=red, Cryptic=yellow, Mundane=grey, Significant=cyan
+  - Scrolls with rest of overlay
+- **Log events**: Only Significant-tone conversations involving notable agents (2+ institutions or epithets)
+  - Uses ConversationOccurred event type
+- **Save compat**: #[serde(default)] for conversations field, old saves load fine
 
 ## Files Modified This Session
-- src/sim/agent.rs — RelationshipKind, Relationship struct, relationships field
-- src/sim/event.rs — RelationshipFormed, RelationshipChanged event types
-- src/sim/mod.rs — process_relationship_tick(), relationship_count(), InspectAgent(usize, usize)
-- src/gen/prose_gen.rs — generate_relationship_event()
-- src/gen/world_gen.rs — relationships: Vec::new() in Agent initializers
-- src/gen/eschaton_gen.rs — relationships: Vec::new() in Agent initializers
-- src/ui/overlays.rs — RELATIONSHIPS in inspect, word_wrap(), scroll support, scroll capping
-- src/ui/layout.rs — InspectAgent(idx, scroll) destructuring
-- src/main.rs — handle_inspect_input with scroll keys, InspectAgent(idx, 0) calls
+- src/sim/agent.rs — ConversationTone enum, Conversation struct, conversations field
+- src/sim/event.rs — ConversationOccurred event type, color/prefix matches
+- src/sim/mod.rs — process_conversation_tick(), pick_conversation_tone(), conversation influence on relationship formation
+- src/gen/prose_gen.rs — generate_conversation() with 50 templates, ConversationOccurred match arm
+- src/gen/world_gen.rs — conversations: Vec::new() in Agent initializers
+- src/gen/eschaton_gen.rs — conversations: Vec::new() in Agent initializers
+- src/ui/overlays.rs — CONVERSATIONS section in inspect overlay
 
 ## Decisions Made
-- Relationships stored per-agent (both sides) for fast lookup
-- Formation every 20 ticks, evolution every 100 ticks
-- Only notable agents (2+ institutions or 2+ epithets) generate log events
-- word_wrap() breaks at whitespace boundaries, handles words longer than width
-- Scroll capping done in renderer (max_scroll = lines.len() - inner_height)
+- Conversations stored per-agent (both sides get the same line_a/line_b)
+- Conversation tick runs every 30 ticks (offset from relationship tick at 20)
+- Tone weighting uses cumulative probability distribution
+- Cap at 20 conversations per agent keeps memory lightweight
+- Only 6 shown in overlay to avoid clutter
+- Significant conversations use the same notability check as relationships
 
 ## Known Issues
 - 5 compiler warnings (pre-existing, all dead_code)
-- Old saves work fine — relationships default to empty Vec
+- Old saves work fine — conversations default to empty Vec
 
 ## Next Steps
 - Further polish / new features as directed by player
@@ -61,3 +65,4 @@
 - InspectAgent overlay is now InspectAgent(usize, usize) — (agent_idx, scroll_offset)
 - Speed keybindings: 0/1/2/3 (not the old 1/5/2 scheme)
 - SESSION_NOTES.md should be fully rewritten each update, not appended to
+- Conversations are separate from relationships — they influence relationship formation but are tracked independently

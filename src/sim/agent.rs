@@ -5,6 +5,49 @@ use serde::{Deserialize, Serialize};
 use crate::sim::event::EventType;
 use crate::sim::world::{MAP_HEIGHT, MAP_WIDTH, Terrain};
 
+/// The tone of a conversation between two agents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConversationTone {
+    Warm,
+    Tense,
+    Cryptic,
+    Mundane,
+    Significant,
+}
+
+impl ConversationTone {
+    pub fn display_color(&self) -> ratatui::style::Color {
+        use ratatui::style::Color;
+        match self {
+            ConversationTone::Warm => Color::Rgb(100, 200, 140),
+            ConversationTone::Tense => Color::Rgb(220, 100, 100),
+            ConversationTone::Cryptic => Color::Rgb(220, 200, 100),
+            ConversationTone::Mundane => Color::Rgb(150, 150, 150),
+            ConversationTone::Significant => Color::Rgb(100, 200, 220),
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            ConversationTone::Warm => "Warm",
+            ConversationTone::Tense => "Tense",
+            ConversationTone::Cryptic => "Cryptic",
+            ConversationTone::Mundane => "Mundane",
+            ConversationTone::Significant => "Significant",
+        }
+    }
+}
+
+/// A conversation between two agents.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Conversation {
+    pub other_id: u64,
+    pub tick: u64,
+    pub line_a: String,
+    pub line_b: String,
+    pub tone: ConversationTone,
+}
+
 /// The kind of relationship between two agents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RelationshipKind {
@@ -139,6 +182,9 @@ pub struct Agent {
     /// Relationships with other agents.
     #[serde(default)]
     pub relationships: Vec<Relationship>,
+    /// Recent conversations with other agents (capped at 20).
+    #[serde(default)]
+    pub conversations: Vec<Conversation>,
 }
 
 impl Agent {
